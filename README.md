@@ -3,11 +3,11 @@
 Code and data for the following works:
 * <a href="https://static.scale.com/uploads/654197dc94d34f66c0f5184e/SWEAP_Eval_Scale%20(9).pdf">SWE-bench Pro: Can AI Agents Solve Long-Horizon Software Engineering Tasks?</a>
 
-* HuggingFace: <a href="https://static.scale.com/uploads/654197dc94d34f66c0f5184e/SWEAP_Eval_Scale%20(9).pdf">https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro</a>
+* HuggingFace: <a href="https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro">https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro</a>
 
-* Public Leaderboard: <a href="https://static.scale.com/uploads/654197dc94d34f66c0f5184e/SWEAP_Eval_Scale%20(9).pdf">https://scale.com/leaderboard/swe_bench_pro_public</a>
+* Public Leaderboard: <a href="https://scale.com/leaderboard/swe_bench_pro_public">https://scale.com/leaderboard/swe_bench_pro_public</a>
 
-* Commercial (Private) Leaderboard: <a href="https://static.scale.com/uploads/654197dc94d34f66c0f5184e/SWEAP_Eval_Scale%20(9).pdf">https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro</a>
+* Commercial (Private) Leaderboard: <a href="https://scale.com/leaderboard/swe_bench_pro_commercial">https://scale.com/leaderboard/swe_bench_pro_commercial</a>
 
 ## 👋 Overview
 SWE-Bench Pro is a challenging benchmark evaluating LLMs/Agents on long-horizon software engineering tasks.
