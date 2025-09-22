@@ -44,7 +44,7 @@ active = true
 
 We store prebuilt Docker images for each instance. They can be found in this directory:
 
-https://hub.docker.com/repository/docker/jefzda/sweap-images/general
+https://hub.docker.com/r/jefzda/sweap-images
 
 The format of the images is as follows.
 
