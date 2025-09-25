@@ -63,7 +63,7 @@ First generate patch predictions using your harness of choice.
 Evaluate patch predictions on SWE-bench Pro with the following command:
 
 ```bash
-python swe_bench_pro_eval_modal.py \
+python swe_bench_pro_eval.py \
     --raw_sample_path=external_hf_v2.csv \
     --patch_path={OUTPUT}/gold_patches.json \
     --output_dir={OUTPUT}/ \
