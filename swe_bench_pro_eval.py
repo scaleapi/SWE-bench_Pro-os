@@ -109,13 +109,13 @@ def create_dockerhub_tag(uid, repo_name=""):
         str: Docker Hub compatible tag (e.g., "nodebb-nodebb-12345")
     """
     if repo_name:
-        # For "sweap-images/nodebb.nodebb" -> "nodebb.nodebb"
-        # image_name = repo_name.split("/")[-1]
-        # # Replace dots with hyphens and convert to lowercase
-        # image_name = image_name.lower()
-        repo_base, repo_name = repo_name.lower().split("/")
-        hsh = uid.replace("instance_", "").replace("-vnan", "")
-        return f"{repo_base}.{repo_name}-{hsh}"
+        # For "NodeBB/NodeBB" -> repo_base="nodebb", repo_name="nodebb" 
+        # Format: {repo_base}.{repo_name}-{OriginalCase}__{OriginalCase}-{hash}-{version}
+        # Example: nodebb.nodebb-NodeBB__NodeBB-7b8bffd763e2155cf88f3ebc258fa68ebe18188d-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e
+        repo_base, repo_name_only = repo_name.lower().split("/")
+        # Keep original case for the instance_id part (after removing "instance_" prefix)
+        hsh = uid.replace("instance_", "")
+        return f"{repo_base}.{repo_name_only}-{hsh}"
     else:
         image_name = "default"
 
@@ -141,7 +141,31 @@ def get_dockerhub_image_uri(uid, dockerhub_username, repo_name=""):
     Returns:
         str: Full Docker Hub image URI
     """
-    tag = create_dockerhub_tag(uid, repo_name)
+    repo_base, repo_name_only = repo_name.lower().split("/")
+    hsh = uid.replace("instance_", "")
+    
+    # Docker Hub naming rules (based on empirical observation):
+    # 1. Repo prefix is always lowercase: NodeBB/NodeBB -> nodebb.nodebb-
+    # 2. Instance ID preserves original capitalization: NodeBB__NodeBB-...
+    # 3. -vnan suffixes are typically stripped
+    # 4. element-hq/element-web uses shortened "element" name (with one exception)
+    
+    # Special case: One specific element-hq instance keeps full name and -vnan
+    if uid == "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan":
+        repo_name_only = 'element-web'  # Keep full name for this one case
+    # All other element-hq repos: use short name and strip -vnan
+    elif 'element-hq' in repo_name.lower() and 'element-web' in repo_name.lower():
+        repo_name_only = 'element'
+        if hsh.endswith('-vnan'):
+            hsh = hsh[:-5]
+    # All other repos: strip -vnan suffix
+    elif hsh.endswith('-vnan'):
+        hsh = hsh[:-5]
+    
+    tag = f"{repo_base}.{repo_name_only}-{hsh}"
+    if len(tag) > 128:
+        tag = tag[:128]
+    
     return f"{dockerhub_username}/sweap-images:{tag}"
 
 
@@ -180,13 +204,8 @@ def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, 
         print(f"Using Docker Hub image: {dockerhub_image_uri}")
         
         image = modal.Image.from_registry(
-            dockerhub_image_uri,
-            setup_dockerfile_commands=[
-                "RUN (apt update && apt install -y python3-pip) || (apk update && apk add py3-pip) || true",
-                "RUN python -m pip config set global.break-system-packages true || true",
-                "RUN pip install requests || true",
-            ],
-        ).entrypoint([])
+            dockerhub_image_uri
+        )
 
         sandbox = modal.Sandbox.create(
             image=image,
