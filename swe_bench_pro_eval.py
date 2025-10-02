@@ -37,8 +37,16 @@ import argparse
 import concurrent.futures
 import json
 import os
+import platform as py_platform
 
-import modal
+try:
+    import modal  # Lazy/optional: only required when not using --use_local_docker
+except Exception:
+    modal = None
+try:
+    import docker  # Optional: used when --use_local_docker is set
+except Exception:
+    docker = None
 import pandas as pd
 from tqdm import tqdm
 
@@ -169,34 +177,136 @@ def get_dockerhub_image_uri(uid, dockerhub_username, repo_name=""):
     return f"{dockerhub_username}/sweap-images:{tag}"
 
 
-def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False):
-    uid = sample["instance_id"]
-    os.makedirs(os.path.join(output_dir, uid), exist_ok=True)
-    if not redo and os.path.exists(os.path.join(output_dir, uid, f"{prefix}_output.json")):
-        with open(os.path.join(output_dir, uid, f"{prefix}_output.json"), "r") as f:
-            return json.load(f)
-    
-    sandbox = None
-    output_path = os.path.join(output_dir, uid, f"{prefix}_output.json")
-    
+def prepare_run(uid, output_dir, prefix, redo):
+    uid_dir = os.path.join(output_dir, uid)
+    os.makedirs(uid_dir, exist_ok=True)
+    output_path = os.path.join(uid_dir, f"{prefix}_output.json")
     if not redo and os.path.exists(output_path):
         print(f"Skipping {uid} - output already exists")
         with open(output_path, "r") as f:
-            return json.load(f)
+            return json.load(f), output_path, os.path.join(uid_dir, "workspace")
+    workspace_dir = os.path.join(uid_dir, "workspace")
+    os.makedirs(workspace_dir, exist_ok=True)
+    return None, output_path, workspace_dir
+
+
+def write_patch_snapshot(output_dir, uid, prefix, patch):
+    with open(os.path.join(output_dir, uid, f"{prefix}_patch.diff"), "w") as f:
+        f.write(patch)
+
+
+def assemble_workspace_files(uid, scripts_dir, patch, sample):
+    run_script = load_local_script(scripts_dir, uid, "run_script.sh")
+    parser_script = load_local_script(scripts_dir, uid, "parser.py")
+    entryscript_content = create_entryscript(sample)
+
+    files = {
+        "patch.diff": patch,
+        "run_script.sh": run_script,
+        "parser.py": parser_script,
+        "entryscript.sh": entryscript_content,
+    }
+    return files, entryscript_content
+
+
+def write_files_modal(sandbox, files):
+    for rel_path, content in files.items():
+        with sandbox.open(f"/workspace/{rel_path}", "w") as f:
+            f.write(content)
+
+
+def write_files_local(workspace_dir, files):
+    for rel_path, content in files.items():
+        dst = os.path.join(workspace_dir, rel_path)
+        with open(dst, "w") as f:
+            f.write(content)
+
+
+def save_entryscript_copy(output_dir, uid, prefix, entryscript_content):
+    with open(os.path.join(output_dir, uid, f"{prefix}_entryscript.sh"), "w") as f:
+        f.write(entryscript_content if entryscript_content is not None else "")
+
+
+def collect_outputs_modal(sandbox, output_dir, uid, prefix):
+    # Save logs first (best-effort)
+    try:
+        with sandbox.open("/workspace/stdout.log", "r") as f_in:
+            with open(os.path.join(output_dir, uid, f"{prefix}_stdout.log"), "w") as f:
+                stdout_content = f_in.read()
+                f.write(stdout_content if stdout_content is not None else "")
+    except FileNotFoundError:
+        pass
+    try:
+        with sandbox.open("/workspace/stderr.log", "r") as f_in:
+            with open(os.path.join(output_dir, uid, f"{prefix}_stderr.log"), "w") as f:
+                stderr_content = f_in.read()
+                f.write(stderr_content if stderr_content is not None else "")
+    except FileNotFoundError:
+        pass
+
+    # Then try to read output.json
+    try:
+        with sandbox.open("/workspace/output.json", "r") as f_in:
+            output = json.load(f_in)
+            with open(os.path.join(output_dir, uid, f"{prefix}_output.json"), "w") as f:
+                json.dump(output, f)
+            return output
+    except FileNotFoundError:
+        print(
+            f"Warning: output.json not found for {uid}. Check {prefix}_stdout.log and {prefix}_stderr.log for details"
+        )
+        return None
+
+
+def collect_outputs_local(workspace_dir, output_dir, uid, prefix):
+    def _copy_safe(src_name, dest_name):
+        src_path = os.path.join(workspace_dir, src_name)
+        dest_path = os.path.join(output_dir, uid, dest_name)
+        try:
+            with open(src_path, "r") as f_in:
+                content = f_in.read()
+        except FileNotFoundError:
+            content = ""
+        with open(dest_path, "w") as f_out:
+            f_out.write(content if content is not None else "")
+
+    _copy_safe("stdout.log", f"{prefix}_stdout.log")
+    _copy_safe("stderr.log", f"{prefix}_stderr.log")
+
+    # Then try to read output.json
+    try:
+        with open(os.path.join(workspace_dir, "output.json"), "r") as f_in:
+            output = json.load(f_in)
+            with open(os.path.join(output_dir, uid, f"{prefix}_output.json"), "w") as f:
+                json.dump(output, f)
+            return output
+    except FileNotFoundError:
+        print(
+            f"Warning: output.json not found for {uid}. Check {prefix}_stdout.log and {prefix}_stderr.log for details"
+        )
+        return None
+
+
+def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False):
+    if modal is None:
+        raise RuntimeError("modal is not installed. Install it or run with --use_local_docker")
+    uid = sample["instance_id"]
+    existing_output, output_path, workspace_dir = prepare_run(uid, output_dir, prefix, redo)
+    if existing_output is not None:
+        return existing_output
+
+    sandbox = None
     
     print(f"Running evaluation for {uid}")
     try:
-        with open(os.path.join(output_dir, uid, f"{prefix}_patch.diff"), "w") as f:
-            f.write(patch)
-        
-        # Load local scripts
+        write_patch_snapshot(output_dir, uid, prefix, patch)
+
         try:
-            run_script = load_local_script(scripts_dir, uid, "run_script.sh")
-            parser_script = load_local_script(scripts_dir, uid, "parser.py")
+            files, entryscript_content = assemble_workspace_files(uid, scripts_dir, patch, sample)
         except FileNotFoundError as e:
             print(f"Error loading scripts for {uid}: {e}")
             return None
-        
+
         app = modal.App.lookup(name="swe-bench-pro-eval", create_if_missing=True)
         
         # Use Docker Hub image instead of ECR
@@ -219,17 +329,7 @@ def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, 
         process = sandbox.exec("mkdir", "-p", "/workspace")
         process.wait()
         
-        # Write patch file
-        with sandbox.open("/workspace/patch.diff", "w") as f:
-            f.write(patch)
-            
-        # Write local scripts to sandbox
-        with sandbox.open("/workspace/run_script.sh", "w") as f:
-            f.write(run_script)
-        with sandbox.open("/workspace/parser.py", "w") as f:
-            f.write(parser_script)
-        with sandbox.open("/workspace/entryscript.sh", "w") as f:
-            f.write(create_entryscript(sample))
+        write_files_modal(sandbox, files)
             
         process = sandbox.exec("bash", "/workspace/entryscript.sh")
         process.wait()
@@ -248,30 +348,10 @@ def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, 
             except Exception as e:
                 print(f"Failed to read stderr for {uid}: {e}")
             
-        # Check if output.json exists first
-        try:
-            with sandbox.open("/workspace/output.json", "r") as f_in:
-                output = json.load(f_in)
-                with open(os.path.join(output_dir, uid, f"{prefix}_output.json"), "w") as f:
-                    json.dump(output, f)
-        except FileNotFoundError:
-            print(
-                f"Warning: output.json not found for {uid}. Check {prefix}_stdout.log and {prefix}_stderr.log for details"
-            )
+        output = collect_outputs_modal(sandbox, output_dir, uid, prefix)
+        if output is None:
             return None
-            
-        # Save logs
-        with sandbox.open("/workspace/stdout.log", "r") as f_in:
-            with open(os.path.join(output_dir, uid, f"{prefix}_stdout.log"), "w") as f:
-                stdout_content = f_in.read()
-                f.write(stdout_content if stdout_content is not None else "")
-        with sandbox.open("/workspace/stderr.log", "r") as f_in:
-            with open(os.path.join(output_dir, uid, f"{prefix}_stderr.log"), "w") as f:
-                stderr_content = f_in.read()
-                f.write(stderr_content if stderr_content is not None else "")
-        with open(os.path.join(output_dir, uid, f"{prefix}_entryscript.sh"), "w") as f:
-            entryscript_content = create_entryscript(sample)
-            f.write(entryscript_content if entryscript_content is not None else "")
+        save_entryscript_copy(output_dir, uid, prefix, entryscript_content)
             
         return output
     except Exception as e:
@@ -286,8 +366,83 @@ def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, 
                 pass
 
 
+def eval_with_docker(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False, docker_platform=None):
+    if docker is None:
+        raise RuntimeError("docker SDK is not installed. Install via 'pip install docker' or run without --use_local_docker")
+    uid = sample["instance_id"]
+    existing_output, output_path, workspace_dir = prepare_run(uid, output_dir, prefix, redo)
+    if existing_output is not None:
+        return existing_output
+
+    print(f"Running local-docker evaluation for {uid}")
+
+    try:
+        try:
+            files, entryscript_content = assemble_workspace_files(uid, scripts_dir, patch, sample)
+        except FileNotFoundError as e:
+            print(f"Error loading scripts for {uid}: {e}")
+            return None
+        write_files_local(workspace_dir, files)
+        write_patch_snapshot(output_dir, uid, prefix, patch)
+
+        # Run container via Docker SDK
+        dockerhub_image_uri = get_dockerhub_image_uri(uid, dockerhub_username, sample.get("repo", ""))
+        print(f"Using Docker Hub image: {dockerhub_image_uri}")
+
+        client = docker.from_env()
+        try:
+            if docker_platform:
+                client.images.pull(dockerhub_image_uri, platform=docker_platform)
+            else:
+                client.images.pull(dockerhub_image_uri)
+        except Exception as pull_err:
+            # If pull fails, fall back to a local image if present; otherwise, fail this run
+            try:
+                client.images.get(dockerhub_image_uri)
+                print(f"Using locally available image: {dockerhub_image_uri}")
+            except Exception:
+                print(f"Failed to pull or find image locally for {uid}: {pull_err}")
+                return None
+
+        abs_workspace_dir = os.path.abspath(workspace_dir)
+        volumes = {abs_workspace_dir: {"bind": "/workspace", "mode": "rw"}}
+        run_kwargs = {
+            "volumes": volumes,
+            "detach": True,
+            "remove": True,
+            "entrypoint": "/bin/bash",  # Override image entrypoint
+            "command": ["-c", "bash /workspace/entryscript.sh"],
+        }
+        if block_network:
+            run_kwargs["network_mode"] = "none"
+        # Optional platform override (useful on Apple Silicon)
+        if docker_platform:
+            run_kwargs["platform"] = docker_platform
+
+        container = client.containers.run(
+            dockerhub_image_uri,
+            **run_kwargs,
+        )
+
+        result = container.wait()
+        status_code = result.get("StatusCode", 1) if isinstance(result, dict) else 1
+        if status_code != 0:
+            print(f"Entryscript failed for {uid} with return code: {status_code}")
+        # Collect outputs and logs, and save entryscript for reference
+        output = collect_outputs_local(workspace_dir, output_dir, uid, prefix)
+        if output is None:
+            return None
+        save_entryscript_copy(output_dir, uid, prefix, entryscript_content)
+
+        return output
+    except Exception as e:
+        print(f"Error in eval_with_docker for {uid}: {repr(e)}")
+        print(f"Error type: {type(e)}")
+        return None
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run SWEAP Pro evaluations with Modal using Docker Hub images and local scripts")
+    parser = argparse.ArgumentParser(description="Run SWEAP Pro evaluations using Modal or local Docker with Docker Hub images and local scripts")
     parser.add_argument("--raw_sample_path", required=True, help="Path to the raw sample CSV file")
     parser.add_argument(
         "--patch_path", required=True, help="Path to the JSON file containing patches"
@@ -300,6 +455,14 @@ def parse_args():
         "--scripts_dir", required=True, help="Directory containing local run scripts (e.g., scripts/run_scripts)"
     )
     parser.add_argument(
+        "--use_local_docker", action="store_true", help="Run locally with Docker instead of Modal"
+    )
+    parser.add_argument(
+        "--docker_platform",
+        default=None,
+        help="Docker platform override, e.g., linux/amd64; defaults to auto-detect",
+    )
+    parser.add_argument(
         "--redo", action="store_true", help="Redo evaluations even if output exists"
     )
     parser.add_argument(
@@ -309,7 +472,7 @@ def parse_args():
         help="Number of workers to run evaluations in parallel",
     )
     parser.add_argument(
-        "--block_network", action="store_true", help="Block network access for Modal"
+        "--block_network", action="store_true", help="Block network access inside container"
     )
     return parser.parse_args()
 
@@ -352,12 +515,24 @@ def main():
             print(f"  ... and {len(missing_instances) - 5} more")
         print(f"Proceeding with {len(valid_patches)} valid patches out of {len(patches_to_run)} total patches")
 
+    # Select runtime
+    # Auto-detect default platform if not provided: prefer linux/amd64 on Apple Silicon
+    detected_platform = None
+    if args.use_local_docker and args.docker_platform is None:
+        try:
+            if py_platform.machine().lower() in {"arm64", "aarch64"}:
+                detected_platform = "linux/amd64"
+        except Exception:
+            detected_platform = None
+
+    eval_fn = eval_with_docker if args.use_local_docker else eval_with_modal
+
     # Use ThreadPoolExecutor to run evaluations in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.num_workers) as executor:
         # Create a dictionary mapping futures to their patch samples for progress tracking
         future_to_patch = {
             executor.submit(
-                eval_with_modal,
+                eval_fn,
                 patch_sample.get("model_patch", patch_sample.get("patch", "")),
                 raw_sample_df.loc[patch_sample["instance_id"]],
                 args.output_dir,
@@ -366,6 +541,7 @@ def main():
                 prefix=patch_sample.get("prefix", ""),
                 redo=args.redo,
                 block_network=args.block_network,
+                docker_platform=(args.docker_platform or detected_platform) if args.use_local_docker else None,
             ): patch_sample
             for patch_sample in valid_patches
         }
