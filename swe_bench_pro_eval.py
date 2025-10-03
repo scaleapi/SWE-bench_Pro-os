@@ -287,7 +287,7 @@ def collect_outputs_local(workspace_dir, output_dir, uid, prefix):
         return None
 
 
-def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False):
+def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False, docker_platform=None):
     if modal is None:
         raise RuntimeError("modal is not installed. Install it or run with --use_local_docker")
     uid = sample["instance_id"]
