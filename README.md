@@ -74,3 +74,6 @@ python swe_bench_pro_eval_modal.py \
 
 Replace gold_patches with your patch json, and point raw_sample_path to the SWE-Bench Pro CSV.
 Gold Patches can be compiled from the HuggingFace dataset.
+
+(10/3) Notes on reproducing paper results:
+For the research paper, we ran SWE-Agent results which are cost-limited to $2 per instance and 50 turns. Since this limits the model performance, we are running additional evals which have no cost limit and a turn limit of 250 and will report those results as well.
