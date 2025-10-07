@@ -9,6 +9,11 @@ Code and data for the following works:
 
 * Commercial (Private) Leaderboard: <a href="https://scale.com/leaderboard/swe_bench_pro_commercial">https://scale.com/leaderboard/swe_bench_pro_commercial</a>
 
+## News
+
+(10/3) Notes on reproducing paper results:
+For the research paper, we ran SWE-Agent results which are cost-limited to $2 per instance and 50 turns. Since this limits the model performance, we are running additional evals which have no cost limit and a turn limit of 250 and will report those results as well.
+
 ## Overview
 SWE-Bench Pro is a challenging benchmark evaluating LLMs/Agents on long-horizon software engineering tasks.
 Given a *codebase* and an *issue*, a language model is tasked with generating a *patch* that resolves the described problem.
@@ -54,8 +59,6 @@ For example:
 
 `jefzda/sweap-images:gravitational.teleport-gravitational__teleport-82185f232ae8974258397e121b3bc2ed0c3729ed-v626ec2a48416b10a88641359a169d99e935ff03`
 
-(9/23) You can also use the image_name in the HuggingFace.
-
 Note that bash runs by default in our images. e.g. when running these images, you should not manually envoke bash. See https://github.com/scaleapi/SWE-bench_Pro-os/issues/6
 
 ## Usage
@@ -74,6 +77,3 @@ python swe_bench_pro_eval.py \
 
 Replace gold_patches with your patch json, and point raw_sample_path to the SWE-Bench Pro CSV.
 Gold Patches can be compiled from the HuggingFace dataset.
-
-(10/3) Notes on reproducing paper results:
-For the research paper, we ran SWE-Agent results which are cost-limited to $2 per instance and 50 turns. Since this limits the model performance, we are running additional evals which have no cost limit and a turn limit of 250 and will report those results as well.
