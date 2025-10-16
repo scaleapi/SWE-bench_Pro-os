@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SWE-Bench Pro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .logo-icon {
+            width: 50px;
+            height: 50px;
+            background: #000000;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.5rem;
+            color: white;
+            letter-spacing: -1px;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            color: #ffffff;
+            display: inline;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: #ffffff;
+            margin-top: 10px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 28px;
+            border: 2px solid #3b82f6;
+            background: white;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #3b82f6;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            background: #3b82f6;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .leaderboard-section {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .leaderboard-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 30px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: #f3f4f6;
+        }
+
+        th {
+            padding: 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        th:last-child {
+            text-align: center;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #e5e7eb;
+            transition: background 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        td {
+            padding: 16px;
+            color: #1f2937;
+        }
+
+        td:last-child {
+            text-align: center;
+        }
+
+        .model-name {
+            font-weight: 500;
+        }
+
+        .model-icons {
+            display: inline-flex;
+            gap: 4px;
+            margin-right: 8px;
+            font-size: 1.2rem;
+        }
+
+        .resolved-score {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #059669;
+        }
+
+        .link-icon {
+            color: #6b7280;
+            text-decoration: none;
+            font-size: 1.25rem;
+            transition: color 0.2s ease;
+        }
+
+        .link-icon:hover {
+            color: #3b82f6;
+        }
+
+        .about-section {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            margin-top: 40px;
+        }
+
+        .about-section h2 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 20px;
+        }
+
+        .about-section p {
+            line-height: 1.8;
+            color: #4b5563;
+            margin-bottom: 20px;
+        }
+
+        .about-section a {
+            color: #3b82f6;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .about-section a:hover {
+            text-decoration: underline;
+        }
+
+        .citation-box {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin-top: 15px;
+            border: 2px solid #3b82f6;
+        }
+
+        .disclaimer {
+            color: #6b7280;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .performance-section {
+            background: #000000;
+            color: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            margin-top: 40px;
+        }
+
+        .performance-section h2 {
+            font-size: 2rem;
+            font-weight: 400;
+            margin-bottom: 40px;
+        }
+
+        .performance-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .rank {
+            width: 60px;
+            height: 60px;
+            background: #2a2a2a;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-right: 20px;
+            flex-shrink: 0;
+        }
+
+        .performance-content {
+            flex-grow: 1;
+        }
+
+        .model-label {
+            font-size: 1.25rem;
+            margin-bottom: 10px;
+        }
+
+        .bar-container {
+            background: #1a1a1a;
+            height: 40px;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bar {
+            height: 100%;
+            border-radius: 8px;
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .bar-fill {
+            height: 100%;
+            transition: width 0.5s ease;
+        }
+
+        .bar-error {
+            position: absolute;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.3);
+            border-left: 2px solid white;
+            border-right: 2px solid white;
+        }
+
+        .score-label {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .teal { background: linear-gradient(90deg, #14b8a6 0%, #0d9488 100%); }
+        .coral { background: linear-gradient(90deg, #f97316 0%, #ea580c 100%); }
+        .purple { background: linear-gradient(90deg, #a855f7 0%, #9333ea 100%); }
+        .gray { background: linear-gradient(90deg, #6b7280 0%, #4b5563 100%); }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2.5rem;
+            }
+
+            .leaderboard-section, .about-section, .performance-section {
+                padding: 20px;
+            }
+
+            .performance-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .rank {
+                margin-bottom: 10px;
+            }
+
+            table {
+                font-size: 0.9rem;
+            }
+
+            th, td {
+                padding: 12px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>SWE-Bench Pro</h1>
+            <p class="subtitle">Evaluating AI Agents on Challenging Long-Horizon SWE Tasks</p>
+            <div class="buttons">
+                <a href="https://scale.com/leaderboard/swe_bench_pro_public" class="btn" target="_blank">🏆 Official Leaderboard</a>
+                <a href="https://arxiv.org/abs/2509.16941" class="btn" target="_blank">📄 Paper</a>
+                <a href="https://github.com/scaleapi/SWE-bench_Pro-os" class="btn" target="_blank">💻 Code</a>
+                <a href="https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro" class="btn" target="_blank">💾 Data</a>
+                <a href="https://docs.google.com/forms/d/e/1FAIpQLScBjMAoPnm52nUSyOgO_iyWELuCrwjMKm0xzE2s6u-xSRBHug/viewform?usp=dialog" class="btn" target="_blank">📤 Submit</a>
+            </div>
+        </div>
+
+        <div class="leaderboard-section">
+            <h2 class="leaderboard-title">Leaderboard (Public Set)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>% Resolved</th>
+                        <th>Trajectories</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>
+                            <span class="model-icons">🥇</span>
+                            <span class="model-name">claude-4-5-Sonnet</span>
+                        </td>
+                        <td><span class="resolved-score">43.60</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-icons">🥈</span>
+                            <span class="model-name">claude-4-Sonnet</span>
+                        </td>
+                        <td><span class="resolved-score">42.70</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-icons">🥉</span>
+                            <span class="model-name">gpt-5-2025-08-07 (High)</span>
+                        </td>
+                        <td><span class="resolved-score">36.30</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">gpt-5-2025-08-07 (High)*</span>
+                        </td>
+                        <td><span class="resolved-score">25.90</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">gpt-5-2025-08-07 (Medium)*</span>
+                        </td>
+                        <td><span class="resolved-score">23.26</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">claude-opus-4-1-20250805*</span>
+                        </td>
+                        <td><span class="resolved-score">22.71</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">claude-4-Sonnet-20250514*</span>
+                        </td>
+                        <td><span class="resolved-score">17.65</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">gpt-oss-20b*</span>
+                        </td>
+                        <td><span class="resolved-score">16.20</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">gemini-2.5-Pro-Preview-06-05*</span>
+                        </td>
+                        <td><span class="resolved-score">13.54</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">SWE-Smith-32B*</span>
+                        </td>
+                        <td><span class="resolved-score">6.84</span></td>
+                        <td>–</td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">gpt-4o-2024-11-20*</span>
+                        </td>
+                        <td><span class="resolved-score">4.92</span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <span class="model-name">Qwen3-32B*</span>
+                        </td>
+                        <td><span class="resolved-score">3.42</span></td>
+                        <td>–</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p style="margin-top: 20px; color: #6b7280; font-size: 0.95rem; line-height: 1.6;">
+                Note that these results are initial runs and subject to change, pending an official announcement from Scale. * Previous results (e.g. in the paper) were run with a capped cost limit and turn limit of 50. Models without a * are ran with an uncapped cost and with a turn limit of 50. We recently found that this impacts model performance.
+            </p>
+        </div>
+
+        <div class="about-section">
+            <h2>About</h2>
+            <p>
+                We introduce SWE-Bench Pro, a substantially more challenging benchmark that builds upon the best practices of SWE-BENCH, but is explicitly designed to capture realistic, complex, enterprise-level problems beyond the scope of SWE-BENCH. SWE-BENCH PRO contains 1,865 problems sourced from a diverse set of 41 actively maintained repositories spanning business applications, B2B services, and developer tools. The benchmark is partitioned into a public set with open access to problems sourced from 11 repositories, a held-out set of 12 repositories and a commercial set of 18 proprietary repositories where we have formal partnership agreements with early-stage startups. Problems in the held-out and the commercial set are not publicly accessible, but we release results on the commercial set. Our benchmark features long-horizon tasks that may require hours to days for a professional software engineer to complete, often involving patches across multiple files and substantial code modifications. All tasks are human-verified and augmented with sufficient context to ensure resolvability. In our evaluation of widely used coding models, under a unified scaffold, we observe that their performance on SWE-Bench PRO remains below 25% (Pass@1), with GPT-5 achieving the highest score to date at 23.3%. To better understand these limitations, we cluster the failure modes observed in the collected agent trajectories for a clearer characterization of the error patterns exhibited by current models. Overall, SWE-BENCH PRO provides a contamination-resistant testbed that more faithfully captures the complexity and diversity of real-world software development, advancing the pursuit of truly autonomous software engineering agents at a professional level.
+            </p>
+
+            <h2>Citation</h2>
+            <p>
+                If you found <a href="https://arxiv.org/abs/2509.16941" target="_blank">SWE-bench Pro</a> helpful for your work, please cite as follows:
+            </p>
+
+            <div class="citation-box">@inproceedings{Deng2025SWEBenchPC,
+    title={SWE-Bench Pro: Can AI Agents Solve Long-Horizon Software Engineering Tasks?},
+    author={Xiang Deng and Jeff Da and Edwin Pan and Yan He and Charles Ide and Kanak Garg and Niklas Lauffer and Andrew Park and Nitin Pasari and Chetan Rane and Karmini Sampath and Maya Krishnan and Srivatsa Kundurthy and Sean M. Hendryx and Zifan Wang and Chen Bo Calvin Zhang and Noah Jacobson and Bing Liu and Brad Kenstler},
+    year={2025},
+    url={https://api.semanticscholar.org/CorpusID:281421060}
+}</div>
+
+            <p class="disclaimer">
+            </p>
+        </div>
+    </div>
+</body>
+</html>
