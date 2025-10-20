@@ -126,6 +126,10 @@
             border-bottom: 2px solid #e5e7eb;
         }
 
+        th:nth-child(2), th:nth-child(3) {
+            text-align: center;
+        }
+
         th:last-child {
             text-align: center;
         }
@@ -142,6 +146,10 @@
         td {
             padding: 16px;
             color: #1f2937;
+        }
+
+        td:nth-child(2), td:nth-child(3) {
+            text-align: center;
         }
 
         td:last-child {
@@ -163,6 +171,19 @@
             font-size: 1.25rem;
             font-weight: 700;
             color: #059669;
+        }
+
+        .z-score {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .z-score.positive {
+            color: #059669;
+        }
+
+        .z-score.negative {
+            color: #dc2626;
         }
 
         .link-icon {
@@ -228,109 +249,13 @@
             border-top: 1px solid #e5e7eb;
         }
 
-        .performance-section {
-            background: #000000;
-            color: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-            margin-top: 40px;
-        }
-
-        .performance-section h2 {
-            font-size: 2rem;
-            font-weight: 400;
-            margin-bottom: 40px;
-        }
-
-        .performance-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 30px;
-        }
-
-        .rank {
-            width: 60px;
-            height: 60px;
-            background: #2a2a2a;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-right: 20px;
-            flex-shrink: 0;
-        }
-
-        .performance-content {
-            flex-grow: 1;
-        }
-
-        .model-label {
-            font-size: 1.25rem;
-            margin-bottom: 10px;
-        }
-
-        .bar-container {
-            background: #1a1a1a;
-            height: 40px;
-            border-radius: 8px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .bar {
-            height: 100%;
-            border-radius: 8px;
-            position: relative;
-            display: flex;
-            align-items: center;
-        }
-
-        .bar-fill {
-            height: 100%;
-            transition: width 0.5s ease;
-        }
-
-        .bar-error {
-            position: absolute;
-            height: 100%;
-            background: rgba(255, 255, 255, 0.3);
-            border-left: 2px solid white;
-            border-right: 2px solid white;
-        }
-
-        .score-label {
-            position: absolute;
-            right: 20px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
-
-        .teal { background: linear-gradient(90deg, #14b8a6 0%, #0d9488 100%); }
-        .coral { background: linear-gradient(90deg, #f97316 0%, #ea580c 100%); }
-        .purple { background: linear-gradient(90deg, #a855f7 0%, #9333ea 100%); }
-        .gray { background: linear-gradient(90deg, #6b7280 0%, #4b5563 100%); }
-
         @media (max-width: 768px) {
             h1 {
                 font-size: 2.5rem;
             }
 
-            .leaderboard-section, .about-section, .performance-section {
+            .leaderboard-section, .about-section {
                 padding: 20px;
-            }
-
-            .performance-item {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-
-            .rank {
-                margin-bottom: 10px;
             }
 
             table {
@@ -359,113 +284,136 @@
 
         <div class="leaderboard-section">
             <h2 class="leaderboard-title">Leaderboard (Public Set)</h2>
-            <table>
+            <table id="leaderboardTable">
                 <thead>
                     <tr>
                         <th>Model</th>
                         <th>% Resolved</th>
+                        <th>(+/-)</th>
                         <th>Trajectories</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
+                    <tr data-score="43.60">
                         <td>
                             <span class="model-icons">🥇</span>
                             <span class="model-name">claude-4-5-Sonnet</span>
                         </td>
                         <td><span class="resolved-score">43.60</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="42.70">
                         <td>
                             <span class="model-icons">🥈</span>
                             <span class="model-name">claude-4-Sonnet</span>
                         </td>
                         <td><span class="resolved-score">42.70</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="39.45">
                         <td>
                             <span class="model-icons">🥉</span>
+                            <span class="model-name">claude-4-5-haiku</span>
+                        </td>
+                        <td><span class="resolved-score">39.45</span></td>
+                        <td><span class="z-score"></span></td>
+                        <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
+                    </tr>
+                    <tr data-score="36.30">
+                        <td>
                             <span class="model-name">gpt-5-2025-08-07 (High)</span>
                         </td>
                         <td><span class="resolved-score">36.30</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="27.67">
                         <td>
                             <span class="model-name">kimi-k2-instruct</span>
                         </td>
                         <td><span class="resolved-score">27.67</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="25.90">
                         <td>
                             <span class="model-name">gpt-5-2025-08-07 (High)*</span>
                         </td>
                         <td><span class="resolved-score">25.90</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="23.26">
                         <td>
                             <span class="model-name">gpt-5-2025-08-07 (Medium)*</span>
                         </td>
                         <td><span class="resolved-score">23.26</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="22.71">
                         <td>
                             <span class="model-name">claude-opus-4-1-20250805*</span>
                         </td>
                         <td><span class="resolved-score">22.71</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="17.65">
                         <td>
                             <span class="model-name">claude-4-Sonnet-20250514*</span>
                         </td>
                         <td><span class="resolved-score">17.65</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="16.20">
                         <td>
                             <span class="model-name">gpt-oss-120b</span>
                         </td>
                         <td><span class="resolved-score">16.20</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="13.54">
                         <td>
                             <span class="model-name">gemini-2.5-Pro-Preview-06-05*</span>
                         </td>
                         <td><span class="resolved-score">13.54</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="6.84">
                         <td>
                             <span class="model-name">SWE-Smith-32B*</span>
                         </td>
                         <td><span class="resolved-score">6.84</span></td>
+                        <td><span class="z-score"></span></td>
                         <td>–</td>
                     </tr>
-                    <tr>
+                    <tr data-score="4.92">
                         <td>
                             <span class="model-name">gpt-4o-2024-11-20*</span>
                         </td>
                         <td><span class="resolved-score">4.92</span></td>
+                        <td><span class="z-score"></span></td>
                         <td><a href="https://github.com/scaleapi/SWE-bench_Pro-os/tree/main/traj" class="link-icon" target="_blank">🔗</a></td>
                     </tr>
-                    <tr>
+                    <tr data-score="3.42">
                         <td>
                             <span class="model-name">Qwen3-32B*</span>
                         </td>
                         <td><span class="resolved-score">3.42</span></td>
+                        <td><span class="z-score"></span></td>
                         <td>–</td>
                     </tr>
                 </tbody>
             </table>
             <p style="margin-top: 20px; color: #6b7280; font-size: 0.95rem; line-height: 1.6;">
-                Note that these results are initial runs and subject to change, pending an official announcement from Scale. * Previous results (e.g. in the paper) were run with a capped cost limit and turn limit of 50. Models without a * are ran with an uncapped cost and with a turn limit of 250. We recently found that this impacts model performance.
+                Note that these results are initial runs and subject to change, pending an official announcement from Scale. * Previous results (e.g. in the paper) were run with a capped cost limit and turn limit of 50. Models without a * are ran with an uncapped cost and with a turn limit of 250. We recently found that this impacts model performance.<br><br>
+                The (+/-) column shows the 95% confidence interval (margin of error) for each score, calculated using binomial proportion statistics (total problems: 730).
             </p>
         </div>
 
@@ -498,5 +446,38 @@
             </p>
         </div>
     </div>
+
+    <script>
+        // Calculate confidence intervals for the leaderboard
+        function calculateConfidenceIntervals() {
+            const totalProblems = 730;
+            const rows = document.querySelectorAll('#leaderboardTable tbody tr');
+            const zScore = 1.96; // 95% confidence interval
+            
+            // Calculate and display confidence intervals
+            rows.forEach((row) => {
+                const percentage = parseFloat(row.getAttribute('data-score')) / 100;
+                const solvedProblems = Math.round(percentage * totalProblems);
+                
+                // Calculate standard error for binomial proportion
+                // SE = sqrt(p * (1-p) / n)
+                const standardError = Math.sqrt((percentage * (1 - percentage)) / totalProblems);
+                
+                // Calculate margin of error (in percentage points)
+                const marginOfError = zScore * standardError * 100;
+                
+                const ciElement = row.querySelector('.z-score');
+                
+                // Format as ± value
+                ciElement.textContent = '±' + marginOfError.toFixed(2);
+                
+                // Always use positive (green) color since it's a confidence interval
+                ciElement.classList.add('positive');
+            });
+        }
+        
+        // Run calculation when page loads
+        document.addEventListener('DOMContentLoaded', calculateConfidenceIntervals);
+    </script>
 </body>
 </html>
