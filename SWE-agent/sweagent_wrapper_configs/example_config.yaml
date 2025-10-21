@@ -1,0 +1,16 @@
+instance_path: data/instances.yaml
+output_dir: sweagent_results/sweagent/swe_bench_pro_test
+sweagent_command: |
+  sweagent run-batch \
+    --config config/tool_use.yaml \
+    --output_dir {output_dir} \
+    --num_workers 10 \
+    --random_delay_multiplier 1 \
+    --instances.type file \
+    --instances.path {instance_path} \
+    --instances.slice :10 \
+    --instances.shuffle=False \
+    --instances.deployment.type=modal \
+    --agent.model.name anthropic/claude-3-7-sonnet-20250219 \
+    --agent.model.api_base $OPENAI_BASE_URL \
+    --agent.model.api_key $OPENAI_API_KEY

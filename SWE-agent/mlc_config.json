@@ -1,0 +1,22 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "https://github.com/?.*"
+    },
+    {
+      "pattern": "https://platform.openai.com/docs/.*"
+    },
+    {
+      "pattern": "https://docs.anthropic.com/.*"
+    },
+    {
+      "pattern": ".*localhost.*"
+    },
+    {
+      "pattern": "https?://(.*\\.)?twitter\\.com/.*"
+    },
+    {
+      "pattern": "https?://(.*\\.)?x\\.com/.*"
+    }
+  ]
+}

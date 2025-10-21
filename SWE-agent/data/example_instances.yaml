@@ -1,0 +1,5 @@
+- image_name: "084828598639.dkr.ecr.us-west-2.amazonaws.com/sweap-images/albumentations-team.albumentations:albumentations-team__albumentations-67e24b26002972e05a463f576122513dd54d166c"  
+  problem_statement: "Add xiangdeng to the contribution list in readme"
+  instance_id: "test"
+  base_commit: "317f7f252cac53f30dd47b488e45477792c14425"
+  repo_name: "app"

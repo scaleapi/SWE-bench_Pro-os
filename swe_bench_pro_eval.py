@@ -50,6 +50,8 @@ except Exception:
 import pandas as pd
 from tqdm import tqdm
 
+from helper_code.image_uri import get_dockerhub_image_uri
+
 # Credit: prabhuteja12
 def load_base_docker(iid):
     with open(f"dockerfiles/base_dockerfile/{iid}/Dockerfile") as fp:
@@ -137,44 +139,6 @@ def create_dockerhub_tag(uid, repo_name=""):
     return f"{image_name}-{tag_part}"
 
 
-def get_dockerhub_image_uri(uid, dockerhub_username, repo_name=""):
-    """
-    Generate Docker Hub image URI matching the upload script format.
-    
-    Args:
-        uid (str): Instance ID
-        dockerhub_username (str): Docker Hub username
-        repo_name (str): Repository name from the sample data
-        
-    Returns:
-        str: Full Docker Hub image URI
-    """
-    repo_base, repo_name_only = repo_name.lower().split("/")
-    hsh = uid.replace("instance_", "")
-    
-    # Docker Hub naming rules (based on empirical observation):
-    # 1. Repo prefix is always lowercase: NodeBB/NodeBB -> nodebb.nodebb-
-    # 2. Instance ID preserves original capitalization: NodeBB__NodeBB-...
-    # 3. -vnan suffixes are typically stripped
-    # 4. element-hq/element-web uses shortened "element" name (with one exception)
-    
-    # Special case: One specific element-hq instance keeps full name and -vnan
-    if uid == "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan":
-        repo_name_only = 'element-web'  # Keep full name for this one case
-    # All other element-hq repos: use short name and strip -vnan
-    elif 'element-hq' in repo_name.lower() and 'element-web' in repo_name.lower():
-        repo_name_only = 'element'
-        if hsh.endswith('-vnan'):
-            hsh = hsh[:-5]
-    # All other repos: strip -vnan suffix
-    elif hsh.endswith('-vnan'):
-        hsh = hsh[:-5]
-    
-    tag = f"{repo_base}.{repo_name_only}-{hsh}"
-    if len(tag) > 128:
-        tag = tag[:128]
-    
-    return f"{dockerhub_username}/sweap-images:{tag}"
 
 
 def prepare_run(uid, output_dir, prefix, redo):
