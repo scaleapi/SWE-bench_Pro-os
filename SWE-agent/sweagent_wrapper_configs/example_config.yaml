@@ -1,4 +1,3 @@
-instance_path: data/instances.yaml
 output_dir: sweagent_results/sweagent/swe_bench_pro_test
 sweagent_command: |
   sweagent run-batch \
@@ -7,7 +6,7 @@ sweagent_command: |
     --num_workers 10 \
     --random_delay_multiplier 1 \
     --instances.type file \
-    --instances.path {instance_path} \
+    --instances.path data/instances.yaml \
     --instances.slice :10 \
     --instances.shuffle=False \
     --instances.deployment.type=modal \
@@ -15,4 +14,4 @@ sweagent_command: |
     --agent.model.api_base $OPENAI_BASE_URL \
     --agent.model.api_key $OPENAI_API_KEY \
     --agent.model.per_instance_cost_limit 0 \
-    --agent.model.per_instance_call_limit 0
+    --agent.model.per_instance_call_limit 5

@@ -95,9 +95,7 @@ These variables are referenced in the config files as `$OPENAI_API_KEY` and `$OP
 For batch run, the scripts can take input `json`, `jsonl` or `yaml` files.
 
 ```
-INSTANCE_PATH=xx
 OUTPUT_PATH=xx
-
 
 sweagent run-batch \
     --config config/tool_use.yaml \
@@ -105,7 +103,7 @@ sweagent run-batch \
     --num_workers 30 \
     --random_delay_multiplier 1 \
     --instances.type file \
-    --instances.path $INSTANCE_PATH \
+    --instances.path data/instances.yaml \
     --instances.slice :300 \
     --instances.shuffle=False \
     --instances.deployment.type=modal \
