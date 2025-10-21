@@ -16,7 +16,40 @@ Before getting started, ensure you have the following:
 - **DockerHub username** for generating the instances.yaml file
 
 # Installation
-`pip install -e .` to install SWE-agent. Then apply the patch for SWE-Rex in `swerex_patches` similar to what we do for SWE-Bench in agentless.
+
+## Install SWE-agent
+```bash
+pip install -e .
+```
+
+## Create Required Directories
+SWE-agent expects certain directories to exist. Create them if they don't already exist:
+```bash
+mkdir -p trajectories
+```
+
+## Apply SWE-Rex Patches
+After installing SWE-agent, you need to apply custom patches to the SWE-Rex installation. These patches modify the installed SWE-Rex package to work properly with SWE-bench Pro.
+
+The `patch.py` script will:
+1. Locate your SWE-Rex installation (in your Python environment's site-packages)
+2. Back up the original files with a `.bak` extension
+3. Copy the patched versions over the installed files
+
+To apply the patches:
+
+```bash
+cd swerex_patches
+python patch.py
+```
+
+You'll be prompted to confirm each patch. To skip prompts and apply all patches automatically:
+
+```bash
+python patch.py --yes
+```
+
+**Note**: Currently patches `swerex/deployment/modal.py` to customize Modal deployment behavior for SWE-bench Pro.
 
 # Generate Instances
 Before running SWE-agent, you must first generate the instance YAML file from the SWE-bench Pro dataset. This file contains all the necessary information for each instance including Docker image names, problem statements, and repository details.
@@ -37,6 +70,8 @@ python helper_code/generate_sweagent_instances.py \
 
 # Configure Environment Variables
 
+## For dockerized setup (recommended)
+
 Before running SWE-agent, create a `.env` file in the `SWE-agent/` directory to store your API credentials. These environment variables will be used in your configuration files.
 
 Create `SWE-agent/.env` with the following content:
@@ -44,6 +79,10 @@ Create `SWE-agent/.env` with the following content:
 OPENAI_API_KEY=<your-api-key>
 OPENAI_BASE_URL=<your-api-base-url>  # Optional, only if using a custom endpoint
 ```
+
+## For non-dockerized setup
+
+
 
 **Note**: Despite the variable names, these can be used with any LLM provider:
 - For standard API providers: set `OPENAI_API_KEY` to your API key
@@ -61,7 +100,7 @@ OUTPUT_PATH=xx
 
 
 sweagent run-batch \
-    --config config/scale_default.yaml \
+    --config config/tool_use.yaml \
     --output_dir $OUTPUT_PATH \
     --num_workers 30 \
     --random_delay_multiplier 1 \
@@ -115,7 +154,7 @@ The config structure should look like:
 output_dir: sweagent_results/sweagent/test # REQUIRED: This writes results to sweagent_results/sweagent/test, can be changed to any path under sweagent_results/
 sweagent_command: |
   sweagent run-batch \
-    --config config/scale_default.yaml \
+    --config config/tool_use.yaml \
     --output_dir {output_dir} \
     --num_workers 10 \
     --random_delay_multiplier 1 \
@@ -134,6 +173,32 @@ The above examples runs sweagent on 10 sweap instances.
 
 **For a working example**: See `sweagent_wrapper_configs/example_config.yaml` which runs SWE-agent on 10 instances from the generated instances.yaml file (type: file, no shuffle) using modal deployment with 10 workers and a delay multiplier of 1.
 To run on all instances, remove the `--instances.slice :10 \` line from the config.
+
+### Configurable Agent Options
+
+You can set additional agent configuration options in your wrapper config or via command-line flags. Common options include:
+
+**Model Limits:**
+- `--agent.model.per_instance_cost_limit <value>` - Cost limit per instance in dollars (default: 3.0, set to 0 to disable)
+- `--agent.model.total_cost_limit <value>` - Total cost limit across all instances (default: 0, disabled)
+- `--agent.model.per_instance_call_limit <value>` - Maximum LLM calls per instance (default: 0, disabled)
+
+**Model Parameters:**
+- `--agent.model.temperature <value>` - Sampling temperature (default: 0.0)
+- `--agent.model.top_p <value>` - Sampling top-p (default: 1.0)
+- `--agent.model.max_input_tokens <value>` - Override max input tokens
+- `--agent.model.max_output_tokens <value>` - Override max output tokens
+
+**Note for litellm proxies:** If cost tracking doesn't work with your setup, disable cost limits and use call limits instead:
+```bash
+--agent.model.per_instance_cost_limit 0 \
+--agent.model.total_cost_limit 0 \
+--agent.model.per_instance_call_limit 200
+```
+
+For a complete list of all configuration options, refer to:
+- Model options: `sweagent/agent/models.py` - `GenericAPIModelConfig` class
+- All SWE-agent options: See the [official SWE-agent documentation](https://github.com/SWE-agent/SWE-agent)
 
 ## Build and Run Docker Container
 Now, to actually run the dockerized setup, run the following commands from the `SWE-agent/` directory:

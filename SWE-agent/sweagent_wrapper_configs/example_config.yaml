@@ -13,4 +13,6 @@ sweagent_command: |
     --instances.deployment.type=modal \
     --agent.model.name anthropic/claude-3-7-sonnet-20250219 \
     --agent.model.api_base $OPENAI_BASE_URL \
-    --agent.model.api_key $OPENAI_API_KEY
+    --agent.model.api_key $OPENAI_API_KEY \
+    --agent.model.per_instance_cost_limit 0 \
+    --agent.model.per_instance_call_limit 0
