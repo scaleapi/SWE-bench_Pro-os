@@ -64,25 +64,13 @@ class _ImageBuilder:
             secrets = None
         return modal.Image.from_registry(image, secrets=secrets)
 
-    def from_ecr(self, image: str) -> modal.Image:
-        self.logger.info(f"Building image from ECR {image}")
-        try:
-            return modal.Image.from_aws_ecr(  # type: ignore
-                image,
-                secret=modal.Secret.from_name(os.environ.get("MODAL_AWS_SECRET_NAME", "aws-secret-ml-xiang-deng")),
-                setup_dockerfile_commands=["RUN apt update && apt install -y pip || true", "RUN python -m pip config set global.break-system-packages true || true"]
-            )
-        except NoCredentialsError as e:
-            msg = "AWS credentials not found. Please configure your AWS credentials."
-            raise ValueError(msg) from e
-
     def ensure_pipx_installed(self, image: modal.Image) -> modal.Image:
 
         image = image\
             .run_commands("pip config unset global.index-url || true") \
-            .run_commands("apt update && apt install -y curl") \
+            .run_commands("(apt update && apt install -y curl) || (apk update && apk add --no-cache curl bash)") \
             .run_commands("curl https://pyenv.run | bash") \
-            .run_commands("apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata && apt install -y make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev curl git libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev") \
+            .run_commands("(apt update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata && apt install -y make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev curl git libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev) || (apk add --no-cache make build-base openssl-dev zlib-dev bzip2-dev readline-dev sqlite-dev git ncurses-dev xz tk-dev libxml2-dev xmlsec-dev libffi-dev xz-dev)") \
             .run_commands("~/.pyenv/bin/pyenv install 3.11.13") \
             .run_commands("~/.pyenv/versions/3.11.13/bin/python3.11 -m pip install pipx") \
             .run_commands("~/.pyenv/versions/3.11.13/bin/python3.11 -m pipx ensurepath") \
@@ -98,8 +86,6 @@ class _ImageBuilder:
             raise FileNotFoundError(msg)
         elif Path(image_spec).is_file():
             image = self.from_file(Path(image_spec))
-        elif "amazonaws.com" in image_spec:  # type: ignore
-            image = self.from_ecr(image_spec)  # type: ignore
         else:
             image = self.from_registry(image_spec)  # type: ignore
 
@@ -118,11 +104,11 @@ class ModalDeployment(AbstractDeployment):
         *,
         logger: logging.Logger | None = None,
         image: str | modal.Image | PurePath,
-        startup_timeout: float = 120.0,
-        runtime_timeout: float = 1800.0,
+        startup_timeout: float = 1800.0,
+        runtime_timeout: float = 3600.0,
         modal_sandbox_kwargs: dict[str, Any] | None = None,
         install_pipx: bool = True,
-        deployment_timeout: float = 1800.0,
+        deployment_timeout: float = 3600.0,
     ):
         """Deployment for modal.com. The deployment will only start when the
         `start` method is being called.

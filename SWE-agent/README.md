@@ -107,6 +107,8 @@ sweagent run-batch \
     --instances.slice :300 \
     --instances.shuffle=False \
     --instances.deployment.type=modal \
+    --instances.deployment.startup_timeout 1800 \
+    --instances.deployment.runtime_timeout 3600 \
     --agent.model.name claude-3-7-sonnet-20250219 \
     --agent.model.api_base $OPENAI_BASE_URL \
     --agent.model.api_key $OPENAI_API_KEY
@@ -148,7 +150,7 @@ This env will be mounted into the docker container, so it can be used to set any
 To easily be able to execute swe-agent runs, create a YAML config under the `sweagent_wrapper_configs/` directory.
 The config structure should look like:
 
-```
+```yaml
 output_dir: sweagent_results/sweagent/test # REQUIRED: This writes results to sweagent_results/sweagent/test, can be changed to any path under sweagent_results/
 sweagent_command: |
   sweagent run-batch \
@@ -161,6 +163,8 @@ sweagent_command: |
     --instances.slice :10 \
     --instances.shuffle=False \
     --instances.deployment.type=modal \
+    --instances.deployment.startup_timeout 1800 \
+    --instances.deployment.runtime_timeout 3600 \
     --agent.model.name anthropic/claude-3-7-sonnet-20250219 \
     --agent.model.api_base $OPENAI_BASE_URL \
     --agent.model.api_key $OPENAI_API_KEY # Make sure this is set in the .env file
@@ -169,8 +173,7 @@ sweagent_command: |
 The command section refers to the exact swe-agent command which will be executed. Please actively refer to https://swe-agent.com/latest/usage/batch_mode/ for command line arguments when running batch commands for swe-agent.
 The above examples runs sweagent on 10 sweap instances.
 
-**For a working example**: See `sweagent_wrapper_configs/example_config.yaml` which runs SWE-agent on 10 instances from the generated instances.yaml file (type: file, no shuffle) using modal deployment with 10 workers and a delay multiplier of 1.
-To run on all instances, remove the `--instances.slice :10 \` line from the config.
+**For a working example**: See `sweagent_wrapper_configs/example_config.yaml` which runs SWE-agent on the first 25 instances from the generated instances.yaml file using Modal deployment with 20 workers, 30-minute startup timeout for cold starts, 1-hour runtime timeout, and a 3-call limit per instance for testing. Remove the `instances.slice` from the config to run on all instances
 
 ### Configurable Agent Options
 
@@ -196,6 +199,7 @@ You can set additional agent configuration options in your wrapper config or via
 
 For a complete list of all configuration options, refer to:
 - Model options: `sweagent/agent/models.py` - `GenericAPIModelConfig` class
+- Deployment options: Set via `--instances.deployment.*` flags
 - All SWE-agent options: See the [official SWE-agent documentation](https://github.com/SWE-agent/SWE-agent)
 
 ## Build and Run Docker Container
@@ -206,6 +210,8 @@ just build && just run
 ```
 
 This command will build a docker image (sweagent-image) with a tag of your username, and run the docker container.
+
+**Note**: The Docker build process automatically applies the SWE-Rex patches from `swerex_patches/` during the image build, so you don't need to manually apply them inside the container.
 
 **NOTE: You don't have to build the image each time, you can run using just run in the future if your only changes are config changes. See the "Config file or Command Changes" section**
 
@@ -231,3 +237,5 @@ You should be able to see the run logs actively your console, and final predicti
 ### Config file or Command Changes
 
 The files under `sweagent_wrapper_configs/` and `config/` are synced into the **running docker container** automatically (changes will be reflected when files are saved). So configs as well as commands to sweagent can be changed without any rebuilding required.
+
+**Important**: If you modify files in `swerex_patches/`, you need to rebuild the Docker image with `just build` for the changes to take effect, as patches are applied during the build process.

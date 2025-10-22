@@ -20,6 +20,9 @@ RUN git clone -b modal_support --single-branch https://github.com/mayavkrishnan2
 WORKDIR /SWE-bench
 RUN pip install -e .
 
+# Apply local SWE-Rex patches to override any defaults from the forked repo
+WORKDIR /app
+RUN python swerex_patches/patch.py --yes
 
 WORKDIR /app
 
