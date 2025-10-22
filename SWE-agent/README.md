@@ -11,7 +11,7 @@ Before getting started, ensure you have the following:
 - **Python 3.8+** with pip installed
 - **Docker** (Recommended, for the dockerized wrapper setup)
 - **Just** command runner (if using the dockerized wrapper setup)
-- **Modal account** with access credentials (request via #it-help slack channel)
+- **Modal account** with access credentials (sign up at https://modal.com)
 - **API access** to a compatible LLM (e.g., OpenAI API, Anthropic Claude API, or hosted model endpoint)
 - **DockerHub username** for generating the instances.yaml file
 
@@ -83,7 +83,7 @@ OPENAI_BASE_URL=<your-api-base-url>  # Optional, only if using a custom endpoint
 
 These variables are referenced in the config files as `$OPENAI_API_KEY` and `$OPENAI_BASE_URL`.
 
-# Run
+# Run without dockerized setup (not recommended)
 For batch run, the scripts can take input `json`, `jsonl` or `yaml` files.
 
 ```
@@ -113,7 +113,6 @@ This will generate the patches, which can then be evaluated use the same scripts
 In order to run swe-agent using a docker container which handles installing all dependencies and patches as well as a single entrypoint script, follow these steps
 
 ## Setup Modal
-First, get access to modal via the #it-help slack channel.
 
 Run the following commands to store modal credentials (if you want to run swe-agent with modal):
 ```
@@ -129,6 +128,10 @@ token_id = <token id>
 token_secret = <token secret>
 active = true
 ```
+
+**Note**: If you use the dockerized setup, and you do not see ~/modal.toml present, you may have to adjust the location from which it is copied in the justfile
+
+
 ## Create a .env file
 In the SWE-agent directory, create an .env file and populate it with your OpenAI API Key:
 

@@ -15,7 +15,7 @@ run:
     docker run -it --rm --ipc=host \
     --name sweagent-{{USERNAME}} \
     --env-file $(pwd)/.env \
-    -v "/mnt/efs/{{USERNAME}}/.modal.toml:/root/.modal.toml" \
+    -v "$HOME/.modal.toml:/root/.modal.toml" \
     -v "$(pwd)/config:/app/config" \
     -v "$(pwd)/sweagent_wrapper_configs:/app/sweagent_wrapper_configs" \
     -v "$(pwd)/sweagent_results:/app/sweagent_results" \
