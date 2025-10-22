@@ -118,7 +118,6 @@ class ModalDeployment(AbstractDeployment):
                 1. `modal.Image` object
                 2. Path to a Dockerfile
                 3. Dockerhub image name (e.g. `python:3.11-slim`)
-                4. ECR image name (e.g. `123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:tag`)
             startup_timeout: The time to wait for the runtime to start.
             runtime_timeout: The runtime timeout.
             deployment_timeout: The deployment timeout.
