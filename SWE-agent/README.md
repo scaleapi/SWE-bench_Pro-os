@@ -22,12 +22,6 @@ Before getting started, ensure you have the following:
 pip install -e .
 ```
 
-## Create Required Directories
-SWE-agent expects certain directories to exist. Create them if they don't already exist:
-```bash
-mkdir -p trajectories
-```
-
 ## Apply SWE-Rex Patches
 After installing SWE-agent, you need to apply custom patches to the SWE-Rex installation. These patches modify the installed SWE-Rex package to work properly with SWE-bench Pro.
 
@@ -80,9 +74,7 @@ OPENAI_API_KEY=<your-api-key>
 OPENAI_BASE_URL=<your-api-base-url>  # Optional, only if using a custom endpoint
 ```
 
-## For non-dockerized setup
-
-
+## For non-dockerized setup (not recommended)
 
 **Note**: Despite the variable names, these can be used with any LLM provider:
 - For standard API providers: set `OPENAI_API_KEY` to your API key
@@ -116,7 +108,7 @@ sweagent run-batch \
 
 This will generate the patches, which can then be evaluated use the same scripts we use for evaluating SWEAP.
 
-# Running with Dockerized Wrapper Setup
+# Running with Dockerized Wrapper Setup (Recommended)
 
 In order to run swe-agent using a docker container which handles installing all dependencies and patches as well as a single entrypoint script, follow these steps
 
@@ -190,13 +182,6 @@ You can set additional agent configuration options in your wrapper config or via
 - `--agent.model.max_input_tokens <value>` - Override max input tokens
 - `--agent.model.max_output_tokens <value>` - Override max output tokens
 
-**Note for litellm proxies:** If cost tracking doesn't work with your setup, disable cost limits and use call limits instead:
-```bash
---agent.model.per_instance_cost_limit 0 \
---agent.model.total_cost_limit 0 \
---agent.model.per_instance_call_limit 200
-```
-
 For a complete list of all configuration options, refer to:
 - Model options: `sweagent/agent/models.py` - `GenericAPIModelConfig` class
 - Deployment options: Set via `--instances.deployment.*` flags
@@ -237,5 +222,10 @@ You should be able to see the run logs actively your console, and final predicti
 ### Config file or Command Changes
 
 The files under `sweagent_wrapper_configs/` and `config/` are synced into the **running docker container** automatically (changes will be reflected when files are saved). So configs as well as commands to sweagent can be changed without any rebuilding required.
+
+EG:
+```
+just run
+```
 
 **Important**: If you modify files in `swerex_patches/`, you need to rebuild the Docker image with `just build` for the changes to take effect, as patches are applied during the build process.
