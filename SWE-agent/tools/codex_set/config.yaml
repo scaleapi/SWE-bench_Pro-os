@@ -1,0 +1,69 @@
+tools:
+  apply_patch:
+    signature: "apply_patch <patch>"
+    docstring: >
+      Apply a patch to modify, add, or delete files. The patch must follow OpenAI's format: Start with '*** Begin Patch', then use '*** Update File: path', '*** Delete File: path', or '*** Add File: path'. For updates, prefix unchanged lines with space, deleted lines with '-', and added lines with '+'. End with '*** End Patch'. Multiple operations supported in one patch.
+    arguments:
+      - name: patch
+        type: string
+        description: "The patch text in OpenAI's format"
+        required: true
+        argument_format: "--patch {{value}}"
+
+  read_file:
+    signature: "read_file <path> [<line_start>] [<line_end>]"
+    docstring: >
+      Read and display the contents of a file with line numbers. Use this to view file contents before making edits.
+    arguments:
+      - name: path
+        type: string
+        description: "Path to the file to read"
+        required: true
+        argument_format: "--path {{value}}"
+      - name: line_start
+        type: integer
+        description: "Starting line number. Defaults to 1 if not specified."
+        required: false
+        argument_format: "--line_start {{value}}"
+      - name: line_end
+        type: integer
+        description: "Ending line number. Defaults to 20 if not specified."
+        required: false
+        argument_format: "--line_end {{value}}"
+
+  list_files:
+    signature: "list_files [<path>] [<depth>]"
+    docstring: >
+      List files and directories in a tree structure. Use this to explore the codebase structure.
+    arguments:
+      - name: path
+        type: string
+        description: "Path to list. Defaults to current directory if not specified."
+        required: false
+        argument_format: "--path {{value}}"
+      - name: depth
+        type: integer
+        description: "How many levels deep to traverse. Defaults to 1 if not specified."
+        required: false
+        argument_format: "--depth {{value}}"
+
+  find_matches:
+    signature: "find_matches <query> [<path>] [<max_results>]"
+    docstring: >
+      Search for a text pattern in files. Returns file:line:content for each match. Use this to find where specific code or text appears in the codebase.
+    arguments:
+      - name: query
+        type: string
+        description: "The text pattern to search for"
+        required: true
+        argument_format: "--query {{value}}"
+      - name: path
+        type: string
+        description: "Path to search in. Defaults to current directory if not specified."
+        required: false
+        argument_format: "--path {{value}}"
+      - name: max_results
+        type: integer
+        description: "Maximum number of results to return. Defaults to 50 if not specified."
+        required: false
+        argument_format: "--max_results {{value}}"
