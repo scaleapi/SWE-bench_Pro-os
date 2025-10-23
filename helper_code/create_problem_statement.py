@@ -1,19 +1,25 @@
-# Here is an example of how to use the problem statements, requirements, and interface.
-from tqdm import tqdm
-from datasets import Dataset, load_dataset
+"""
+Utilities for creating and formatting problem statements from the SWE-bench Pro dataset.
 
-TEMPLATE = f"""{row['FINAL_PROBLEM_STATEMENT']}
+This module provides functions to format problem statements using the template
+that includes the problem statement, requirements, and new interfaces.
 
-Requirements:
-{row['FINAL_REQUIREMENT']}
-
-New interfaces introduced:
-{row['FINAL_INTERFACE']}
+The SWE-bench Pro dataset contains:
+- problem_statement: The main issue description
+- requirements: Requirements for the solution
+- interface: New interfaces introduced
 """
 
-if __name__ == "__main__":
-    swebench_pro = load_dataset('ScaleAI/SWE-bench_Pro', split='test')
 
-    for row in tqdm(swebench_pro):
-        problem_statement = TEMPLATE.format(row=row)
-        print(problem_statement)
+def create_problem_statement(row):
+    problem_statement = row['problem_statement']
+    requirement = row['requirements']
+    interface = row['interface']
+    
+    return f"""{problem_statement}
+
+Requirements:
+{requirement}
+
+New interfaces introduced:
+{interface}"""
