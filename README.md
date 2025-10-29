@@ -62,18 +62,70 @@ For example:
 Note that bash runs by default in our images. e.g. when running these images, you should not manually envoke bash. See https://github.com/scaleapi/SWE-bench_Pro-os/issues/6
 
 ## Usage
-First generate patch predictions using your harness of choice.
-Evaluate patch predictions on SWE-bench Pro with the following command:
+
+### 1. Generate Patches
+Generate patch predictions using your harness of choice. 
+
+For generating patches using SWE-agent, see the [SWE-agent directory](./SWE-agent/) which contains detailed instructions on how to:
+- Set up SWE-agent for patch generation
+- Run SWE-agent on SWE-Bench Pro instances
+- Configure model parameters and turn limits
+
+The output will be `.pred` files containing model-generated patches for each instance.
+
+### 2. Gather Patches
+After generating patches, use the `gather_patches.py` helper script to collect all patches into a single JSON file for evaluation:
+
+```bash
+python helper_code/gather_patches.py \
+    --directory <path_to_pred_files> \
+    --prefix <model_name> \
+    --output <output_file>.json
+```
+
+**Parameters:**
+- `--directory`: Directory containing instance folders with `.pred` files (e.g., from SWE-agent output or downloaded trajectories)
+- `--prefix`: Prefix identifier for your model/run (e.g., "gpt4", "claude-sonnet", "sample1")
+- `--output`: Output JSON file path
+
+**Example:**
+```bash
+python helper_code/gather_patches.py \
+    --directory swe_bench_pro_results/sample1 \
+    --prefix sample1 \
+    --output sample1_patches.json
+```
+
+This will create a JSON file in the format expected by the evaluation script:
+```json
+[
+  {
+    "instance_id": "instance_...",
+    "patch": "diff --git ...",
+    "prefix": "sample1"
+  }
+]
+```
+
+### 3. Evaluate Patches
+Evaluate patch predictions on SWE-Bench Pro with the following command:
 
 ```bash
 python swe_bench_pro_eval.py \
-    --raw_sample_path=external_hf_v2.csv \
-    --patch_path={OUTPUT}/gold_patches.json \
-    --output_dir={OUTPUT}/ \
+    --raw_sample_path=swe_bench_pro_full.csv \
+    --patch_path=<your_patches>.json \
+    --output_dir=<output_directory> \
     --scripts_dir=run_scripts \
     --num_workers=100 \
     --dockerhub_username=jefzda
 ```
 
-Replace gold_patches with your patch json, and point raw_sample_path to the SWE-Bench Pro CSV.
-Gold Patches can be compiled from the HuggingFace dataset.
+**Parameters:**
+- `--raw_sample_path`: Path to the SWE-Bench Pro CSV file
+- `--patch_path`: Path to your gathered patches JSON file
+- `--output_dir`: Directory to store evaluation results
+- `--scripts_dir`: Directory containing run scripts (default: `run_scripts`)
+- `--num_workers`: Number of parallel workers for evaluation
+- `--dockerhub_username`: Docker Hub username where images are stored
+
+**Note:** Gold patches for validation can be compiled from the [HuggingFace dataset](https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro).
