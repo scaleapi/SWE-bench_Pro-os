@@ -681,15 +681,22 @@ class LiteLLMModel(AbstractModel):
         completion_kwargs = self.config.completion_kwargs
         if self.lm_provider == "anthropic":
             completion_kwargs["max_tokens"] = self.model_max_output_tokens
+
+        # Build sampling parameters - only include top_p if it's set and temperature is not being used
+        sampling_kwargs = {}
+        if temperature is not None or self.config.temperature != 0.0:
+            sampling_kwargs["temperature"] = self.config.temperature if temperature is None else temperature
+        elif self.config.top_p is not None:
+            sampling_kwargs["top_p"] = self.config.top_p
+
         try:
             response: litellm.types.utils.ModelResponse = litellm.completion(  # type: ignore
                 model=self.config.name,
                 messages=messages,
-                temperature=self.config.temperature if temperature is None else temperature,
-                top_p=self.config.top_p,
                 api_version=self.config.api_version,
                 api_key=self.config.choose_api_key(),
                 fallbacks=self.config.fallbacks,
+                **sampling_kwargs,
                 **completion_kwargs,
                 **extra_args,
                 n=n,
