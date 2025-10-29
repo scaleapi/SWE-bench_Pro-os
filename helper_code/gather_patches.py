@@ -21,25 +21,6 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 
-def extract_instance_id(folder_name: str) -> Optional[str]:
-    """
-    Extract instance_id from folder name.
-    
-    Folder names are in the format:
-    - instance_<repo>-<hash>-<version> (for instances)
-    - Just return the full folder name if it starts with 'instance_'
-    
-    Args:
-        folder_name: The name of the folder
-        
-    Returns:
-        The instance_id or None if not a valid instance folder
-    """
-    if folder_name.startswith('instance_'):
-        return folder_name
-    return None
-
-
 def find_pred_file(directory: Path, instance_id: str) -> Optional[Path]:
     """
     Find the .pred file in a directory.
@@ -56,7 +37,6 @@ def find_pred_file(directory: Path, instance_id: str) -> Optional[Path]:
     if pred_files:
         return pred_files[0]
     
-    # Also try just looking for any .pred file in the directory
     pred_files = list(directory.glob("*.pred"))
     if pred_files:
         return pred_files[0]
@@ -81,39 +61,42 @@ def gather_patches_from_local(directory: str, prefix: str) -> List[Dict[str, str
     if not directory_path.exists():
         raise FileNotFoundError(f"Directory not found: {directory}")
     
-    # Iterate through all subdirectories
     for item in sorted(directory_path.iterdir()):
         if not item.is_dir():
             continue
         
-        # Extract instance_id from folder name
-        instance_id = extract_instance_id(item.name)
-        if not instance_id:
+        if not item.name.startswith('instance_'):
             continue
         
-        # Find the .pred file
-        pred_file = find_pred_file(item, instance_id)
+        pred_file = find_pred_file(item, item.name)
         if not pred_file:
-            print(f"Warning: No .pred file found for {instance_id}")
+            print(f"Warning: No .pred file found in {item.name}")
             continue
         
-        # Read the patch content
         try:
             with open(pred_file, 'r') as f:
                 content = f.read()
             
-            # Check if the file is JSON (typical for .pred files with model_patch field)
+            instance_id = None
             patch_content = content
+            
             try:
                 pred_data = json.loads(content)
-                # Extract the actual patch from the JSON structure
+                
+                if 'instance_id' in pred_data:
+                    instance_id = pred_data['instance_id']
+                
                 if 'model_patch' in pred_data:
                     patch_content = pred_data['model_patch']
                 elif 'patch' in pred_data:
                     patch_content = pred_data['patch']
+                    
             except json.JSONDecodeError:
-                # Not JSON, treat as plain text patch
                 pass
+            
+            if not instance_id:
+                instance_id = item.name
+                print(f"Warning: Using folder name as instance_id for {item.name}")
             
             patches.append({
                 "instance_id": instance_id,
@@ -154,10 +137,8 @@ def main():
     
     args = parser.parse_args()
     
-    # Gather patches
     patches = gather_patches_from_local(args.directory, args.prefix)
     
-    # Write output
     print(f"Found {len(patches)} patches, writing to {args.output}")
     
     with open(args.output, 'w') as f:
@@ -166,4 +147,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
