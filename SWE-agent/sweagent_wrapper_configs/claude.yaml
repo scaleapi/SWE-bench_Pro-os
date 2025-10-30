@@ -1,0 +1,17 @@
+output_dir: sweagent_results/sweap_eval_1023/claude-45sonnet/traj
+sweagent_command: |
+  sweagent run-batch \
+    --config /mnt/efs/jeffreyda/models_sweap/agent/evals/swe/SWE-agent/config/jeff_tool.yaml \
+    --output_dir {output_dir} \
+    --num_workers 10 \
+    --random_delay_multiplier 0.5 \
+    --instances.type file \
+    --instances.path /mnt/efs/jeffreyda/models_sweap/agent/evals/swe/SWE-agent/data/sweap_eval_full_v2.jsonl \
+    --instances.shuffle=False \
+    --instances.deployment.type=modal \
+    --agent.model.name litellm_proxy/anthropic/claude-sonnet-4-5 \
+    --agent.model.max_input_tokens 200000 \
+    --agent.model.api_base https://litellm.ml.scaleinternal.com/ \
+    --agent.model.api_key sk-pIlJdNIuscEB6oTnqXt2hw \
+    --agent.model.per_instance_cost_limit 0 \
+    --agent.model.per_instance_call_limit 250

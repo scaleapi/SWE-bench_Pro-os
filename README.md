@@ -11,8 +11,9 @@ Code and data for the following works:
 
 ## News
 
-(10/3) Notes on reproducing paper results:
-For the research paper, we ran SWE-Agent results which are cost-limited to $2 per instance and 50 turns. Since this limits the model performance, we are running additional evals which have no cost limit and a turn limit of 250 and will report those results as well.
+(10/28) We have the SWE-Agent scaffold to reproduce results and a step-by-step guide below. We have confirmed that this reproduces the Sonnet 4.5 results.
+
+(10/3) We have updated results without cap limit here: https://scaleapi.github.io/SWE-bench_Pro-os/
 
 ## Overview
 SWE-Bench Pro is a challenging benchmark evaluating LLMs/Agents on long-horizon software engineering tasks.
@@ -120,12 +121,16 @@ python swe_bench_pro_eval.py \
     --dockerhub_username=jefzda
 ```
 
-**Parameters:**
-- `--raw_sample_path`: Path to the SWE-Bench Pro CSV file
-- `--patch_path`: Path to your gathered patches JSON file
-- `--output_dir`: Directory to store evaluation results
-- `--scripts_dir`: Directory containing run scripts (default: `run_scripts`)
-- `--num_workers`: Number of parallel workers for evaluation
-- `--dockerhub_username`: Docker Hub username where images are stored
+Replace gold_patches with your patch json, and point raw_sample_path to the SWE-Bench Pro CSV.
+Gold Patches can be compiled from the HuggingFace dataset.
 
-**Note:** Gold patches for validation can be compiled from the [HuggingFace dataset](https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro).
+## Reproducing Leaderboard Results
+
+To reproduce leaderboard results end-to-end, follow the following steps:
+
+1. Complete setup in the `SWE-agent` folder. We recommend to use the Docker image to run the scaffold, via `just`.
+2. Run the scaffold. We have included an example for Claude Sonnet 4.5 (claude.yaml) but feel free to use any model. It also supports `vllm` for local models. Note that we recommend using the DockerHub images rather than building the Docker images from scratch. You can also execute it locally without Modal.
+3. Compile predictions with compile_predictions.py.
+4. Run the evaluation script `swe_bench_pro_eval.py` to run the evaluation script.
+
+

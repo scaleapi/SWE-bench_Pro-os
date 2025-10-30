@@ -395,7 +395,7 @@ class RunBatch:
             data = json.loads(content)
             # If the trajectory has no exit status, it's incomplete and we will redo it
             exit_status = data["info"].get("exit_status", None)
-            if exit_status == "early_exit" or exit_status is None:
+            if exit_status == "early_exit" or exit_status is None or "exit_error" in exit_status:
                 self.logger.warning(f"Found existing trajectory with no exit status: {log_path}. Removing.")
                 log_path.unlink()
                 return False
