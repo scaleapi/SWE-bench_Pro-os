@@ -156,7 +156,12 @@ class Command(BaseModel):
                 # Handle enum if present
                 if arg.enum:
                     properties[arg.name]["enum"] = arg.enum
-        tool["function"]["parameters"] = {"type": "object", "properties": properties, "required": required}
+        tool["function"]["parameters"] = {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+            "additionalProperties": False
+        }
         return tool
 
     @model_validator(mode="after")

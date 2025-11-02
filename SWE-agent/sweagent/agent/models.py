@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal
 
 import litellm
 import litellm.types.utils
+from openai import OpenAI
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import ConfigDict, Field, SecretStr
 from swerex.exceptions import SwerexException
@@ -120,6 +121,20 @@ class GenericAPIModelConfig(PydanticBaseModel):
     """Whether to choose the API key based on the thread name (if multiple are configured).
     This ensures that with
     run-batch, we use the same API key within a single-thread so that prompt caching still works.
+    """
+
+    use_responses_api: bool = False
+    """Whether to use litellm.responses instead of litellm.completion.
+    This is important for OpenAI models (like gpt-5, o3) that require the Responses API.
+    Note: The Responses API has a different interface and may not support all completion parameters.
+    WARNING: Function calling with tools may not work correctly with litellm proxy + Responses API
+    due to a bug in how the proxy transforms the tools parameter.
+    """
+
+    disable_tools_for_responses_api: bool = False
+    """Temporary workaround: Disable sending tools when using Responses API.
+    Set this to True if you're getting errors related to tools parameter when using Responses API.
+    This will disable function calling but allow the model to work.
     """
 
     max_input_tokens: int | None = None
@@ -652,9 +667,415 @@ class LiteLLMModel(AbstractModel):
         with GLOBAL_STATS_LOCK:
             GLOBAL_STATS.last_query_timestamp = time.time()
 
+    def _single_query_openai_responses(
+        self, messages: list[dict[str, str]], n: int | None = None, temperature: float | None = None
+    ) -> list[dict]:
+        """Query using OpenAI's native Responses API directly.
+        This bypasses litellm and uses the official OpenAI SDK.
+        """
+        self._sleep()
+
+        # Convert messages to input format for Responses API
+        # The Responses API accepts either a string or a list of input items
+        # For function calling, we need to use the list format to include function calls and outputs
+        input_items = []
+
+        for msg in messages:
+            role = msg.get("role", "")
+
+            # Handle tool/function results
+            if role == "tool":
+                # Convert tool message to function_call_output format
+                input_items.append({
+                    "type": "function_call_output",
+                    "call_id": msg.get("tool_call_id", ""),
+                    "output": msg.get("content", "")
+                })
+            # Handle assistant messages with tool calls
+            elif role == "assistant" and "tool_calls" in msg:
+                # Add the tool calls from the assistant's previous response
+                # According to OpenAI docs: input_messages.append(tool_call)
+                for tool_call in msg.get("tool_calls", []):
+                    if tool_call.get("type") == "function" and "function" in tool_call:
+                        # Add the function call to input so we can reference it when sending the output
+                        func = tool_call["function"]
+                        input_items.append({
+                            "type": "function_call",
+                            "call_id": tool_call.get("id", ""),
+                            "name": func.get("name", ""),
+                            "arguments": func.get("arguments", "")
+                        })
+            # Handle regular user/system messages
+            elif role in ("user", "system"):
+                content = msg.get("content", "")
+                if content:
+                    input_items.append({
+                        "role": "user",
+                        "content": content
+                    })
+
+        # If we only have simple text messages (no function calls), use string format
+        # Otherwise use the list format
+        if all(isinstance(item, dict) and item.get("type") != "function_call_output" and "role" in item
+               for item in input_items):
+            # Simple case: just concatenate text
+            input_param = "\n".join(item["content"] for item in input_items if "content" in item)
+        else:
+            # Complex case with function calls: use list format
+            input_param = input_items if input_items else ""
+
+        # Initialize OpenAI client
+        client = OpenAI(
+            api_key=self.config.choose_api_key() or os.getenv("OPENAI_API_KEY"),
+            base_url=self.config.api_base if self.config.api_base else None,
+        )
+
+        # Build kwargs for responses.create()
+        create_kwargs = {
+            "model": self.config.name,
+            "input": input_param,
+        }
+
+        self.logger.debug(f"Input format: {'list' if isinstance(input_param, list) else 'string'}")
+        if isinstance(input_param, list):
+            self.logger.debug(f"Input items count: {len(input_param)}")
+
+        if temperature is not None:
+            create_kwargs["temperature"] = temperature
+        elif self.config.temperature:
+            create_kwargs["temperature"] = self.config.temperature
+
+        if self.model_max_output_tokens:
+            create_kwargs["max_output_tokens"] = self.model_max_output_tokens
+
+        # Add tools if using function calling
+        if self.tools.use_function_calling and not self.config.disable_tools_for_responses_api:
+            # For OpenAI Responses API, use the standard function calling format
+            # Standard format: [{"type": "function", "name": ..., "description": ..., "parameters": ...}]
+            # The Responses API expects the same format as the Completion API but with flattened structure
+            tools_for_openai = []
+            for tool in self.tools.tools:
+                if "function" in tool:
+                    func = tool["function"]
+                    params = func.get("parameters", {})
+
+                    # Check if we can use strict mode: all properties must be required
+                    properties = params.get("properties", {})
+                    required = params.get("required", [])
+                    can_use_strict = len(properties) == len(required)
+
+                    openai_tool = {
+                        "type": "function",
+                        "name": func.get("name", ""),
+                        "description": func.get("description", ""),
+                        "parameters": params,
+                    }
+
+                    # Only enable strict mode if all properties are required
+                    if can_use_strict:
+                        openai_tool["strict"] = True
+
+                    tools_for_openai.append(openai_tool)
+            create_kwargs["tools"] = tools_for_openai
+            self.logger.debug(f"Using OpenAI Responses API with {len(tools_for_openai)} function tools")
+            self.logger.debug(f"First tool structure: {tools_for_openai[0] if tools_for_openai else 'No tools'}")
+
+        # Merge any additional completion_kwargs
+        create_kwargs.update(self.config.completion_kwargs)
+
+        self.logger.debug(f"Calling OpenAI responses.create with model={self.config.name}")
+
+        try:
+            # Call OpenAI's responses.create()
+            response = client.responses.create(**create_kwargs)
+            self.logger.debug("OpenAI responses.create call succeeded")
+        except Exception as e:
+            self.logger.error(f"OpenAI Responses API error: {e}")
+            raise
+
+        # Convert OpenAI response to our standard format
+        # OpenAI response has: id, output (list), status, metadata (with usage)
+        output_list = response.output if hasattr(response, "output") else []
+        self.logger.debug(f"Response output list has {len(output_list)} items")
+
+        message_text = ""
+        tool_calls_list = []
+
+        for i, item in enumerate(output_list):
+            self.logger.debug(f"Output item {i}: type={getattr(item, 'type', 'no type attribute')}")
+            # Check if this is a tool call
+            # The Responses API returns "function_call" type for function tools
+            if hasattr(item, "type") and item.type == "function_call":
+                tool_call = {
+                    "id": item.call_id if hasattr(item, "call_id") else f"call_{len(tool_calls_list)}",
+                    "type": "function",
+                    "function": {
+                        "name": item.name if hasattr(item, "name") else "",
+                        "arguments": item.arguments if hasattr(item, "arguments") else "",
+                    },
+                }
+                tool_calls_list.append(tool_call)
+                self.logger.debug(f"Found function call: {item.name if hasattr(item, 'name') else 'unknown'}")
+            # Extract text content
+            elif hasattr(item, "content"):
+                for content_item in item.content:
+                    if hasattr(content_item, "text"):
+                        message_text += content_item.text + "\n"
+            elif hasattr(item, "text"):
+                message_text += item.text + "\n"
+
+        message_text = message_text.strip()
+
+        # Build output dict
+        output_dict = {"message": message_text}
+        if self.tools.use_function_calling and tool_calls_list:
+            output_dict["tool_calls"] = tool_calls_list
+
+        # Calculate tokens and cost
+        usage = response.metadata.usage if hasattr(response, "metadata") and hasattr(response.metadata, "usage") else {}
+        input_tokens = usage.get("input_tokens", 0) if isinstance(usage, dict) else (usage.input_tokens if hasattr(usage, "input_tokens") else 0)
+        output_tokens = usage.get("output_tokens", 0) if isinstance(usage, dict) else (usage.output_tokens if hasattr(usage, "output_tokens") else 0)
+
+        # Estimate cost (simplified - you may want to use actual pricing)
+        cost = 0.0  # Set to 0 for now, can be calculated based on model pricing
+
+        self._update_stats(input_tokens=input_tokens, output_tokens=output_tokens, cost=cost)
+
+        return [output_dict]
+
+    def _single_query_responses(
+        self, messages: list[dict[str, str]], n: int | None = None, temperature: float | None = None
+    ) -> list[dict]:
+        """Query using litellm.responses API instead of litellm.completion.
+        This is required for OpenAI models that use the Responses API (gpt-5, o3, etc.).
+        """
+        self._sleep()
+        # Convert messages to input format for Responses API
+        # The Responses API uses a different input format than the Completion API
+        # For now, we'll convert the messages array to a single input string
+        # This is a simplified approach - a more sophisticated implementation would
+        # properly handle multi-turn conversations with previous_response_id
+
+        # Extract just the content from messages
+        input_text = ""
+        for msg in messages:
+            content = msg.get("content", "")
+            if content:
+                input_text += content + "\n"
+        input_text = input_text.strip()
+
+        # Estimate input tokens (Responses API doesn't provide exact token counting the same way)
+        messages_no_cache_control = copy.deepcopy(messages)
+        for message in messages_no_cache_control:
+            if "cache_control" in message:
+                del message["cache_control"]
+        input_tokens: int = litellm.utils.token_counter(messages=messages_no_cache_control, model=self.config.name)
+
+        if self.model_max_input_tokens is None:
+            msg = (
+                f"No max input tokens found for model {self.config.name!r}. "
+                "If you are using a local model, you can set `max_input_token` in the model config to override this."
+            )
+            self.logger.warning(msg)
+        elif input_tokens > self.model_max_input_tokens > 0:
+            msg = f"Input tokens {input_tokens} exceed max tokens {self.model_max_input_tokens}"
+            raise ContextWindowExceededError(msg)
+
+        # Build arguments for responses API
+        responses_kwargs = {}
+        if self.config.api_base:
+            responses_kwargs["api_base"] = self.config.api_base
+        if self.config.api_key:
+            responses_kwargs["api_key"] = self.config.choose_api_key()
+        if temperature is not None:
+            responses_kwargs["temperature"] = temperature
+        elif self.config.temperature:
+            responses_kwargs["temperature"] = self.config.temperature
+        if self.model_max_output_tokens:
+            responses_kwargs["max_output_tokens"] = self.model_max_output_tokens
+
+        # Add tools if using function calling
+        if self.tools.use_function_calling and not self.config.disable_tools_for_responses_api:
+            # Use the standard nested format - let litellm handle the transformation
+            # Note: There's a known issue with litellm proxy where it may fail to transform
+            # tools correctly for the Responses API. If you get errors, set
+            # disable_tools_for_responses_api=True as a workaround.
+            responses_kwargs["tools"] = self.tools.tools
+            self.logger.debug(f"Adding {len(self.tools.tools)} tools to Responses API call")
+        elif self.tools.use_function_calling and self.config.disable_tools_for_responses_api:
+            self.logger.warning(
+                "Tools are disabled for Responses API (disable_tools_for_responses_api=True). "
+                "Function calling will not work."
+            )
+
+        # Merge any additional completion_kwargs
+        responses_kwargs.update(self.config.completion_kwargs)
+
+        # Log the full request for debugging
+        self.logger.debug(f"litellm.responses call with model={self.config.name}")
+        self.logger.debug(f"input text length: {len(input_text)} chars")
+        self.logger.debug(f"responses_kwargs keys: {list(responses_kwargs.keys())}")
+        self.logger.debug(f"All responses_kwargs: {responses_kwargs}")
+        if "tools" in responses_kwargs:
+            self.logger.debug(f"Number of tools: {len(responses_kwargs['tools'])}")
+            for i, tool in enumerate(responses_kwargs['tools'][:2]):  # Log first 2 tools
+                self.logger.debug(f"Tool {i}: {tool}")
+
+        try:
+            # Call litellm.responses instead of litellm.completion
+            self.logger.debug("About to call litellm.responses...")
+            response = litellm.responses(
+                model=self.config.name,
+                input=input_text,
+                **responses_kwargs,
+            )
+            self.logger.debug("litellm.responses call succeeded")
+        except litellm.exceptions.ContextWindowExceededError as e:
+            raise ContextWindowExceededError from e
+        except litellm.exceptions.ContentPolicyViolationError as e:
+            raise ContentPolicyViolationError from e
+        except litellm.exceptions.BadRequestError as e:
+            if "is longer than the model's context length" in str(e):
+                raise ContextWindowExceededError from e
+            raise
+        except AttributeError as e:
+            # If litellm.responses doesn't exist, provide a helpful error
+            if "module 'litellm' has no attribute 'responses'" in str(e):
+                msg = (
+                    "litellm.responses is not available. Make sure you have the latest version of litellm "
+                    "that supports the Responses API. You may need to upgrade: pip install --upgrade litellm"
+                )
+                self.logger.error(msg)
+                raise ModelConfigurationError(msg) from e
+            raise
+        except (litellm.exceptions.APIConnectionError, Exception) as e:
+            # Log the full exception details to help debug
+            self.logger.error(f"Full exception type: {type(e).__name__}")
+            self.logger.error(f"Full exception message: {str(e)}")
+            if hasattr(e, '__dict__'):
+                self.logger.error(f"Exception attributes: {e.__dict__}")
+            # Check if this is the 'name' KeyError from the proxy
+            if "'name'" in str(e) and "Litellm_proxyException" in str(e):
+                self.logger.error(
+                    "The litellm proxy is trying to access 'name' field directly, "
+                    "which suggests it expects flat tools format but we're passing nested format. "
+                    f"Tools we sent: {responses_kwargs.get('tools', [])[:1]}"  # Log first tool
+                )
+            raise
+
+        self.logger.debug(f"Response: {response}")
+        self.logger.debug(f"Response type: {type(response)}")
+        self.logger.debug(f"Response keys: {response.keys() if isinstance(response, dict) else 'not a dict'}")
+        if isinstance(response, dict) and "output" in response:
+            self.logger.debug(f"Output list length: {len(response['output'])}")
+            for i, item in enumerate(response['output'][:3]):  # Log first 3 items
+                self.logger.debug(f"Output item {i}: type={type(item)}, value={item}")
+
+        # Handle response format - the Responses API returns a different structure
+        # Response object should have: id, output (list), status, metadata (with usage)
+        try:
+            # Extract usage information
+            usage = response.get("metadata", {}).get("usage", {})
+            output_tokens = usage.get("output_tokens", 0)
+            # Input tokens already calculated above
+
+            # Calculate cost
+            try:
+                if response.get("model", "").startswith("litellm_proxy/"):
+                    if "fireworks_ai" in response.get("model", ""):
+                        custom_llm_provider = "fireworks_ai"
+                    else:
+                        custom_llm_provider = None
+                    response["model"] = response["model"].split("/")[-1]
+                cost = litellm.cost_calculator.completion_cost(response, custom_llm_provider=None)
+            except Exception as e:
+                self.logger.debug(f"Error calculating cost: {e}, setting cost to 0.")
+                if self.config.per_instance_cost_limit > 0 or self.config.total_cost_limit > 0:
+                    msg = (
+                        f"Error calculating cost: {e} for your model {self.config.name}. If this is ok "
+                        "(local models, etc.), please make sure you set `per_instance_cost_limit` and "
+                        "`total_cost_limit` to 0 to disable this safety check."
+                    )
+                    self.logger.error(msg)
+                    raise ModelConfigurationError(msg)
+                cost = 0
+
+            # Extract outputs from response
+            # The Responses API returns output as a list where:
+            # - Element 0 is usually the model's message/reasoning
+            # - Element 1 (if present) is a tool call object
+            outputs = []
+            output_list = response.get("output", [])
+
+            # Extract the main message (usually first element)
+            message_text = ""
+            tool_calls_list = []
+
+            for i, output_item in enumerate(output_list):
+                # Check if this is a tool call
+                # Tool calls in Responses API have properties like: call_id, name, input, type="custom_tool_call"
+                if isinstance(output_item, dict) and output_item.get("type") == "custom_tool_call":
+                    # Convert Responses API tool call format to Completion API format
+                    # Responses format: {"type": "custom_tool_call", "call_id": "...", "name": "...", "input": "..."}
+                    # Completion format: {"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}
+                    tool_call = {
+                        "id": output_item.get("call_id", f"call_{i}"),
+                        "type": "function",
+                        "function": {
+                            "name": output_item.get("name", ""),
+                            "arguments": output_item.get("input", ""),
+                        },
+                    }
+                    tool_calls_list.append(tool_call)
+                # Check for message content
+                elif isinstance(output_item, dict):
+                    # Try different possible content fields
+                    content = output_item.get("content") or output_item.get("text") or output_item.get("message", "")
+                    if content:
+                        message_text += str(content) + "\n"
+                elif isinstance(output_item, str):
+                    # Sometimes output might be a string directly
+                    message_text += output_item + "\n"
+
+            message_text = message_text.strip()
+
+            # Create output dict in the format expected by the rest of the system
+            output_dict = {"message": message_text}
+            if self.tools.use_function_calling and tool_calls_list:
+                output_dict["tool_calls"] = tool_calls_list
+
+            outputs.append(output_dict)
+
+            self._update_stats(input_tokens=input_tokens, output_tokens=output_tokens, cost=cost)
+            return outputs
+
+        except Exception as e:
+            self.logger.error(f"Error parsing Responses API response: {e}")
+            self.logger.error(f"Response structure: {response}")
+            raise ModelConfigurationError(f"Failed to parse Responses API response: {e}") from e
+
     def _single_query(
         self, messages: list[dict[str, str]], n: int | None = None, temperature: float | None = None
     ) -> list[dict]:
+        # Route to appropriate API based on configuration
+        if self.config.use_responses_api:
+            # Check if this is a direct OpenAI model (not through litellm/proxy)
+            # Use native OpenAI SDK if:
+            # 1. Model name starts with "gpt-" or "o1-" or "o3-" (direct OpenAI models)
+            # 2. OR model name is "openai/gpt-..." but NOT "litellm_proxy/..."
+            model_lower = self.config.name.lower()
+            is_direct_openai = (
+                model_lower.startswith(("gpt-", "o1-", "o3-"))
+                or (model_lower.startswith("openai/gpt-") and not model_lower.startswith("litellm_proxy/"))
+            )
+
+            if is_direct_openai:
+                self.logger.info(f"Using native OpenAI Responses API for model: {self.config.name}")
+                return self._single_query_openai_responses(messages, n=n, temperature=temperature)
+            else:
+                self.logger.info(f"Using litellm.responses API for model: {self.config.name}")
+                return self._single_query_responses(messages, n=n, temperature=temperature)
+
         self._sleep()
         # Workaround for litellm bug https://github.com/SWE-agent/SWE-agent/issues/1109
         messages_no_cache_control = copy.deepcopy(messages)
@@ -676,27 +1097,33 @@ class LiteLLMModel(AbstractModel):
             # Not assigned a default value in litellm, so only pass this if it's set
             extra_args["api_base"] = self.config.api_base
         if self.tools.use_function_calling:
-            extra_args["tools"] = self.tools.tools
+            # Special handling for GPT-5-Codex which expects a different tools format
+            if "codex" in self.config.name.lower():
+                # GPT-5-Codex expects tools with a flat structure:
+                # [{"type": "function", "name": "...", "description": "...", "parameters": {...}}]
+                # instead of the nested structure:
+                # [{"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}]
+                tools_for_codex = []
+                for tool in self.tools.tools:
+                    func = tool["function"].copy()
+                    func["type"] = "function"  # Add type at top level
+                    tools_for_codex.append(func)
+                extra_args["tools"] = tools_for_codex
+                self.logger.debug(f"Using Codex flat tools format with {len(tools_for_codex)} tools")
+            else:
+                extra_args["tools"] = self.tools.tools
         # We need to always set max_tokens for anthropic models
         completion_kwargs = self.config.completion_kwargs
         if self.lm_provider == "anthropic":
             completion_kwargs["max_tokens"] = self.model_max_output_tokens
-
-        # Build sampling parameters - only include top_p if it's set and temperature is not being used
-        sampling_kwargs = {}
-        if temperature is not None or self.config.temperature != 0.0:
-            sampling_kwargs["temperature"] = self.config.temperature if temperature is None else temperature
-        elif self.config.top_p is not None:
-            sampling_kwargs["top_p"] = self.config.top_p
-
         try:
             response: litellm.types.utils.ModelResponse = litellm.completion(  # type: ignore
                 model=self.config.name,
                 messages=messages,
+                temperature=self.config.temperature if temperature is None else temperature,
                 api_version=self.config.api_version,
                 api_key=self.config.choose_api_key(),
                 fallbacks=self.config.fallbacks,
-                **sampling_kwargs,
                 **completion_kwargs,
                 **extra_args,
                 n=n,
@@ -744,6 +1171,10 @@ class LiteLLMModel(AbstractModel):
                 else:
                     tool_calls = []
                 output_dict["tool_calls"] = tool_calls
+                # Gemini requires non-empty content when using function calling
+                # If the model didn't provide content, use a placeholder
+                if not output and "gemini" in self.config.name.lower():
+                    output_dict["message"] = "Calling function..."
             outputs.append(output_dict)
         self._update_stats(input_tokens=input_tokens, output_tokens=output_tokens, cost=cost)
         return outputs

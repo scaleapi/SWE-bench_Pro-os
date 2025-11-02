@@ -50,11 +50,11 @@ tools:
   find_matches:
     signature: "find_matches <query> [<path>] [<max_results>]"
     docstring: >
-      Search for a text pattern in files. Returns file:line:content for each match. Use this to find where specific code or text appears in the codebase.
+      Search for files by name or text content within files. If query contains a file extension (e.g., .py, .txt) it will search for matching filenames AND file contents. Returns file:line:content for content matches, and file paths for filename matches. Use this to find files or locate where specific code/text appears in the codebase.
     arguments:
       - name: query
         type: string
-        description: "The text pattern to search for"
+        description: "The text pattern or filename to search for. If it contains a file extension (e.g., 'test.py'), will also search for matching filenames."
         required: true
         argument_format: "--query {{value}}"
       - name: path

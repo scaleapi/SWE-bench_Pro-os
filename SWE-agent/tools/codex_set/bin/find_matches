@@ -50,7 +50,21 @@ if [[ ! "$MAX_RESULTS" =~ ^[0-9]+$ ]] || [[ "$MAX_RESULTS" -lt 1 ]]; then
     exit 1
 fi
 
-# Use ripgrep if available, otherwise fall back to grep
+# Check if query looks like a filename (contains file extension or wildcard)
+# If so, search for files by name as well as content
+FILENAME_RESULTS=""
+if [[ "$QUERY" =~ \.[a-zA-Z0-9]+$ ]] || [[ "$QUERY" =~ \*|\? ]]; then
+    # Query looks like a filename, search for matching filenames
+    FILENAME_RESULTS=$(find "$PATH_ARG" -type f -name "*$QUERY*" 2>/dev/null | head -n "$MAX_RESULTS" || true)
+
+    if [[ -n "$FILENAME_RESULTS" ]]; then
+        echo "=== Files matching '$QUERY' ==="
+        echo "$FILENAME_RESULTS"
+    fi
+fi
+
+# Search file contents
+CONTENT_RESULTS=""
 if command -v rg &> /dev/null; then
     # Use ripgrep with better defaults
     # -n: show line numbers
@@ -58,10 +72,7 @@ if command -v rg &> /dev/null; then
     # --no-heading: show file:line: format
     # --max-count: limit matches per file
     # -g '!.*': ignore hidden files
-    rg -n -H --no-heading --max-count="$MAX_RESULTS" "$QUERY" "$PATH_ARG" 2>/dev/null | head -n "$MAX_RESULTS" || {
-        echo "No matches found for query: $QUERY"
-        exit 0
-    }
+    CONTENT_RESULTS=$(rg -n -H --no-heading --max-count="$MAX_RESULTS" "$QUERY" "$PATH_ARG" 2>/dev/null | head -n "$MAX_RESULTS" || true)
 else
     # Fallback to grep
     # -r: recursive
@@ -69,8 +80,19 @@ else
     # -H: show file names
     # --exclude-dir: exclude hidden directories
     # --exclude: exclude hidden files
-    grep -r -n -H --exclude-dir='.*' --exclude='.*' "$QUERY" "$PATH_ARG" 2>/dev/null | head -n "$MAX_RESULTS" || {
-        echo "No matches found for query: $QUERY"
-        exit 0
-    }
+    CONTENT_RESULTS=$(grep -r -n -H --exclude-dir='.*' --exclude='.*' "$QUERY" "$PATH_ARG" 2>/dev/null | head -n "$MAX_RESULTS" || true)
+fi
+
+if [[ -n "$CONTENT_RESULTS" ]]; then
+    if [[ -n "$FILENAME_RESULTS" ]]; then
+        echo ""
+        echo "=== Content matches for '$QUERY' ==="
+    fi
+    echo "$CONTENT_RESULTS"
+fi
+
+# If neither filename nor content matches found
+if [[ -z "$FILENAME_RESULTS" ]] && [[ -z "$CONTENT_RESULTS" ]]; then
+    echo "No matches found for query: $QUERY"
+    exit 0
 fi
