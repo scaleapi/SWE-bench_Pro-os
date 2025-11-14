@@ -1,0 +1,4 @@
+[submodule "SWE-agent"]
+	path = SWE-agent
+	url = https://github.com/scaleapi/SWE-agent.git
+	branch = scale-customizations

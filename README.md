@@ -67,7 +67,7 @@ Note that bash runs by default in our images. e.g. when running these images, yo
 ### 1. Generate Patches
 Generate patch predictions using your harness of choice. 
 
-For generating patches using SWE-agent, see the [SWE-agent directory](./SWE-agent/) which contains detailed instructions on how to:
+For generating patches using SWE-agent, see the [SWE-agent git submodule](./SWE-agent/) (note: you will have to use this as a git submodule. See [official git documentation](https://git-scm.com/book/en/v2/Git-Tools-Submodules) for details). The submodule contains detailed instructions to
 - Set up SWE-agent for patch generation
 - Run SWE-agent on SWE-Bench Pro instances
 - Configure model parameters and turn limits
@@ -128,9 +128,10 @@ Gold Patches can be compiled from the HuggingFace dataset.
 
 To reproduce leaderboard results end-to-end, follow the following steps:
 
-1. Complete setup in the `SWE-agent` folder. We recommend to use the Docker image to run the scaffold, via `just`.
+1. Complete setup in the `SWE-agent` submodule. We recommend to use the Docker image to run the scaffold, via `just`.
 2. Run the scaffold. We have included an example for Claude Sonnet 4.5 (claude.yaml) but feel free to use any model. It also supports `vllm` for local models. Note that we recommend using the DockerHub images rather than building the Docker images from scratch. You can also execute it locally without Modal.
-3. Compile predictions with compile_predictions.py.
+3. Compile predictions with helper_code/gather_patches.py.
 4. Run the evaluation script `swe_bench_pro_eval.py` to run the evaluation script.
+
 
 
