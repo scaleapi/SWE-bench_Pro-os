@@ -2,3 +2,6 @@
 	path = SWE-agent
 	url = https://github.com/scaleapi/SWE-agent.git
 	branch = scale-customizations
+[submodule "mini-swe-agent"]
+	path = mini-swe-agent
+	url = https://github.com/scaleapi/mini-swe-agent
