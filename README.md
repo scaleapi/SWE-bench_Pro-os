@@ -13,7 +13,7 @@ Code and data for the following works:
 
 (10/28) We added mini-swe-agent! Results are comparable to SWE-Agent for Sonnet 4.5. Feel free to give it a shot. (credit @miguelrc-scale)
 
-(10/28) We have the SWE-Agent scaffold to reproduce results and a step-by-step guide below. We have confirmed that this reproduces the Sonnet 4.5 results.
+(10/28) We have the SWE-Agent scaffold to reproduce results and a step-by-step guide below. We have confirmed that this reproduces the Sonnet 4.5 results. (credit @18vijayb)
 
 (10/3) We have updated results without cap limit here: https://scaleapi.github.io/SWE-bench_Pro-os/
 
