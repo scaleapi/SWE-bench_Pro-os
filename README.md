@@ -109,7 +109,7 @@ This will create a JSON file in the format expected by the evaluation script:
 ```
 
 ### 3. Evaluate Patches
-Evaluate patch predictions on SWE-Bench Pro with the following command:
+Evaluate patch predictions on SWE-Bench Pro with the following command. (`swe_bench_pro_full.csv` is the CSV in the HuggingFace dataset)
 
 ```bash
 python swe_bench_pro_eval.py \
