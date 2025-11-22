@@ -1,0 +1,56 @@
+diff --git a/models/vulninfos_test.go b/models/vulninfos_test.go
+index a5112706a5..8dde057e42 100644
+--- a/models/vulninfos_test.go
++++ b/models/vulninfos_test.go
+@@ -1037,20 +1037,20 @@ func TestAppendIfMissing(t *testing.T) {
+ 	}{
+ 		{
+ 			in: Confidences{
+-				CpeNameMatch,
++				CpeVersionMatch,
+ 			},
+-			arg: CpeNameMatch,
++			arg: CpeVersionMatch,
+ 			out: Confidences{
+-				CpeNameMatch,
++				CpeVersionMatch,
+ 			},
+ 		},
+ 		{
+ 			in: Confidences{
+-				CpeNameMatch,
++				CpeVersionMatch,
+ 			},
+ 			arg: ChangelogExactMatch,
+ 			out: Confidences{
+-				CpeNameMatch,
++				CpeVersionMatch,
+ 				ChangelogExactMatch,
+ 			},
+ 		},
+@@ -1071,21 +1071,21 @@ func TestSortByConfident(t *testing.T) {
+ 		{
+ 			in: Confidences{
+ 				OvalMatch,
+-				CpeNameMatch,
++				CpeVersionMatch,
+ 			},
+ 			out: Confidences{
+ 				OvalMatch,
+-				CpeNameMatch,
++				CpeVersionMatch,
+ 			},
+ 		},
+ 		{
+ 			in: Confidences{
+-				CpeNameMatch,
++				CpeVersionMatch,
+ 				OvalMatch,
+ 			},
+ 			out: Confidences{
+ 				OvalMatch,
+-				CpeNameMatch,
++				CpeVersionMatch,
+ 			},
+ 		},
+ 	}
