@@ -1,0 +1,13 @@
+clone_urls = {
+            "NodeBB/NodeBB": f"https://github.com/{self.github_username}/NodeBB.git",
+            "qutebrowser/qutebrowser": f"https://github.com/{self.github_username}/qutebrowser.git",
+            "ansible/ansible": f"https://github.com/{self.github_username}/ansible.git",
+            "internetarchive/openlibrary": f"https://github.com/{self.github_username}/openlibrary.git",
+            "gravitational/teleport": f"https://github.com/{self.github_username}/teleport.git",
+            "navidrome/navidrome": f"https://github.com/{self.github_username}/navidrome.git",
+            "element-hq/element-web": f"https://github.com/{self.github_username}/element-web.git",
+            "future-architect/vuls": f"https://github.com/{self.github_username}/vuls.git",
+            "protonmail/webclients": f"https://github.com/{self.github_username}/webclients.git",
+            "flipt-io/flipt": f"https://github.com/{self.github_username}/flipt.git",
+            "tutao/tutanota": f"https://github.com/{self.github_username}/tutanota.git"
+}

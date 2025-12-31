@@ -1,0 +1,33 @@
+======================================================================
+SWE-bench Pro - Lines of Code Summary
+Generated: 2025-12-15 20:24:37
+======================================================================
+
+Per-Repository Summary:
+----------------------------------------------------------------------
+Repository                            Branches      Avg LOC       Total LOC
+----------------------------------------------------------------------
+NodeBB__NodeBB                              44      246,785      10,858,523
+ansible__ansible                            96      210,004      20,160,379
+element-hq__element-web                     56      532,487      29,819,277
+flipt-io__flipt                             85      180,909      15,377,294
+future-architect__vuls                      62       66,358       4,114,212
+gravitational__teleport                     76      767,552      58,333,968
+internetarchive__openlibrary                91      364,197      33,141,955
+navidrome__navidrome                        57      128,155       7,304,822
+protonmail__webclients                      63      351,025      22,114,578
+qutebrowser__qutebrowser                    79      212,021      16,749,688
+tutao__tutanota                             20      685,083      13,701,665
+----------------------------------------------------------------------
+TOTAL                                      729      317,800     231,676,361
+
+Overall Statistics:
+----------------------------------------------------------------------
+Total branches processed: 729
+Total lines of code: 231,676,361
+Average LOC per branch: 317,800
+Minimum LOC: 542
+Maximum LOC: 1,598,507
+Median LOC: 228,521
+
+======================================================================

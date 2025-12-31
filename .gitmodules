@@ -1,0 +1,36 @@
+[submodule "SPB_Eval_Pipeline"]
+	path = SPB_Eval_Pipeline
+	url = https://github.com/blitzy-showcase/SPB-Eval-Pipeline.git
+[submodule "swebench_pro_repos/NodeBB__NodeBB"]
+	path = swebench_pro_repos/NodeBB__NodeBB
+	url = https://github.com/blitzy-showcase/NodeBB.git
+[submodule "swebench_pro_repos/ansible__ansible"]
+	path = swebench_pro_repos/ansible__ansible
+	url = https://github.com/blitzy-showcase/ansible.git
+[submodule "swebench_pro_repos/element-hq__element-web"]
+	path = swebench_pro_repos/element-hq__element-web
+	url = https://github.com/blitzy-showcase/element-web.git
+[submodule "swebench_pro_repos/flipt-io__flipt"]
+	path = swebench_pro_repos/flipt-io__flipt
+	url = https://github.com/blitzy-showcase/flipt.git
+[submodule "swebench_pro_repos/future-architect__vuls"]
+	path = swebench_pro_repos/future-architect__vuls
+	url = https://github.com/blitzy-showcase/vuls.git
+[submodule "swebench_pro_repos/gravitational__teleport"]
+	path = swebench_pro_repos/gravitational__teleport
+	url = https://github.com/blitzy-showcase/teleport.git
+[submodule "swebench_pro_repos/internetarchive__openlibrary"]
+	path = swebench_pro_repos/internetarchive__openlibrary
+	url = https://github.com/blitzy-showcase/openlibrary.git
+[submodule "swebench_pro_repos/navidrome__navidrome"]
+	path = swebench_pro_repos/navidrome__navidrome
+	url = https://github.com/blitzy-showcase/navidrome.git
+[submodule "swebench_pro_repos/protonmail__webclients"]
+	path = swebench_pro_repos/protonmail__webclients
+	url = https://github.com/blitzy-showcase/webclients.git
+[submodule "swebench_pro_repos/qutebrowser__qutebrowser"]
+	path = swebench_pro_repos/qutebrowser__qutebrowser
+	url = https://github.com/blitzy-showcase/qutebrowser.git
+[submodule "swebench_pro_repos/tutao__tutanota"]
+	path = swebench_pro_repos/tutao__tutanota
+	url = https://github.com/blitzy-showcase/tutanota.git

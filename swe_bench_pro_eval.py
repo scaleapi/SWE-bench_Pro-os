@@ -94,29 +94,27 @@ def create_dockerhub_tag(uid, repo_name=""):
     This must match the format used in the upload script.
     
     Args:
-        uid (str): The instance_id (e.g., "django__django-12345")
-        repo_name (str): The repository name from ECR (e.g., "sweap-images/nodebb.nodebb")
+        uid (str): The instance_id (e.g., "instance_NodeBB__NodeBB-abc123-vdef456")
+        repo_name (str): The repository name (e.g., "NodeBB/NodeBB")
         
     Returns:
-        str: Docker Hub compatible tag (e.g., "nodebb-nodebb-12345")
+        str: Docker Hub compatible tag (e.g., "nodebb.nodebb-NodeBB__NodeBB-abc123-vdef456")
     """
-    # Extract the final part of repo name after the last '/' and clean it up
-    if repo_name:
-        # For "sweap-images/nodebb.nodebb" -> "nodebb.nodebb"
-        image_name = repo_name.split('/')[-1]
-        # Replace dots with hyphens and convert to lowercase
-        image_name = image_name.replace('.', '-').lower()
+    # Format: {org}.{repo}-{instance_id_without_prefix}
+    # Example: nodebb.nodebb-NodeBB__NodeBB-3ad6ee075b4524cff8ca39a92a68ad9ad9733de3-v2c59007b1...
+    if repo_name and "/" in repo_name:
+        org, repo = repo_name.split("/", 1)
+        image_prefix = f"{org.lower()}.{repo.lower()}"
     else:
-        image_name = "default"
+        image_prefix = "default"
     
-    # Extract the tag part from the instance ID
-    # For UIDs that start with a pattern like "django__django-", extract everything after position 9
-    if "__" in uid and len(uid) > 9:
-        tag_part = uid[9:]  # Skip the first 9 characters (e.g., "django__")
+    # Strip "instance_" prefix from uid if present
+    if uid.startswith("instance_"):
+        uid_part = uid[9:]  # len("instance_") = 9
     else:
-        tag_part = uid
+        uid_part = uid
     
-    return f"{image_name}-{tag_part}"
+    return f"{image_prefix}-{uid_part}"
 
 
 def get_dockerhub_image_uri(uid, dockerhub_username, repo_name=""):
@@ -350,31 +348,74 @@ def main():
                 output = future.result()
                 if output is None:
                     print(f'Evaluation for {patch_sample["instance_id"]} returned None')
-                    eval_results[patch_sample["instance_id"]] = False
+                    eval_results[patch_sample["instance_id"]] = {
+                        "status": "Fail",
+                        "resolved": False,
+                        "PASS_TO_PASS": "",
+                        "FAIL_TO_PASS": "",
+                        "error": "Evaluation returned None"
+                    }
                 else:
                     instance_id = patch_sample["instance_id"]
                     if instance_id not in raw_sample_df.index:
                         print(f'Warning: Instance {instance_id} not found in raw sample data, skipping')
-                        eval_results[instance_id] = False
+                        eval_results[instance_id] = {
+                            "status": "Fail",
+                            "resolved": False,
+                            "PASS_TO_PASS": "",
+                            "FAIL_TO_PASS": "",
+                            "error": "Instance not found in raw sample data"
+                        }
                     else:
                         raw_sample = raw_sample_df.loc[instance_id]
                         passed_tests = {x["name"] for x in output["tests"] if x["status"] == "PASSED"}
-                        f2p = set(eval(raw_sample["FAIL_TO_PASS"]))
-                        p2p = set(eval(raw_sample["PASS_TO_PASS"]))
+                        f2p = set(eval(raw_sample["fail_to_pass"]))
+                        p2p = set(eval(raw_sample["pass_to_pass"]))
+                        
+                        # Calculate which tests passed/failed for each category
+                        f2p_passed = f2p & passed_tests
+                        f2p_failed = f2p - passed_tests
+                        p2p_passed = p2p & passed_tests
+                        p2p_failed = p2p - passed_tests
+                        
                         result = (f2p | p2p) <= passed_tests
-                        eval_results[instance_id] = result
+                        
+                        # Build detailed breakdown strings
+                        f2p_status = f"{len(f2p_passed)}/{len(f2p)} passed"
+                        if f2p_failed:
+                            f2p_status += f" (failed: {', '.join(sorted(f2p_failed))})"
+                        
+                        p2p_status = f"{len(p2p_passed)}/{len(p2p)} passed"
+                        if p2p_failed:
+                            p2p_status += f" (failed: {', '.join(sorted(p2p_failed))})"
+                        
+                        eval_results[instance_id] = {
+                            "status": "Pass" if result else "Fail",
+                            "resolved": result,
+                            "PASS_TO_PASS": p2p_status,
+                            "FAIL_TO_PASS": f2p_status
+                        }
 
-                current_accuracy = sum(eval_results.values()) / len(eval_results)
+                resolved_count = sum(1 for r in eval_results.values() if isinstance(r, dict) and r.get("resolved", False))
+                current_accuracy = resolved_count / len(eval_results)
                 pbar.set_description(f"Accuracy: {current_accuracy:.2%}")
             except Exception as exc:
                 print(f'Evaluation for {patch_sample["instance_id"]} generated an exception: {exc}')
-                eval_results[patch_sample["instance_id"]] = False
+                eval_results[patch_sample["instance_id"]] = {
+                    "status": "Fail",
+                    "resolved": False,
+                    "PASS_TO_PASS": "",
+                    "FAIL_TO_PASS": "",
+                    "error": str(exc)
+                }
                 # Update progress bar description with current accuracy
-                current_accuracy = sum(eval_results.values()) / len(eval_results)
+                resolved_count = sum(1 for r in eval_results.values() if isinstance(r, dict) and r.get("resolved", False))
+                current_accuracy = resolved_count / len(eval_results)
                 pbar.set_description(f"Accuracy: {current_accuracy:.2%}")
     with open(os.path.join(args.output_dir, "eval_results.json"), "w") as f:
-        json.dump(eval_results, f)
-    print("Overall accuracy: ", sum(eval_results.values()) / len(eval_results))
+        json.dump(eval_results, f, indent=2)
+    resolved_count = sum(1 for r in eval_results.values() if isinstance(r, dict) and r.get("resolved", False))
+    print("Overall accuracy: ", resolved_count / len(eval_results))
 
 
 if __name__ == "__main__":

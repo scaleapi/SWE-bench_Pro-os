@@ -1,0 +1,49 @@
+SWE-bench Pro Instance Branch Lines of Code Count
+==================================================
+
+Repository: ansible__ansible
+Branch: instance_ansible__ansible-0ea40e09d1b35bcb69ff4d9cecf3d0defa4b36e8-v30a923fb5c164d6cd18280c02422f75e611e8fb2
+Lines of Code: 384,122
+--------------------------------------------------
+Repository: element-hq__element-web
+Branch: instance_element-hq__element-web-1077729a19c0ce902e713cf6fab42c91fb7907f1-vnan
+Lines of Code: 713,406
+--------------------------------------------------
+Repository: flipt-io__flipt
+Branch: instance_flipt-io__flipt-02e21636c58e86c51119b63e0fb5ca7b813b07b1
+Lines of Code: 233,084
+--------------------------------------------------
+Repository: future-architect__vuls
+Branch: instance_future-architect__vuls-01441351c3407abfc21c48a38e28828e1b504e0c
+Lines of Code: 69,570
+--------------------------------------------------
+Repository: gravitational__teleport
+Branch: instance_gravitational__teleport-005dcb16bacc6a5d5890c4cd302ccfd4298e275d-vee9b09fb20c43af7e520f57e9239bbcf46b7113d
+Lines of Code: 3,248,500
+--------------------------------------------------
+Repository: internetarchive__openlibrary
+Branch: instance_internetarchive__openlibrary-00bec1e7c8f3272c469a58e1377df03f955ed478-v13642507b4fc1f8d234172bf8129942da2c2ca26
+Lines of Code: 376,969
+--------------------------------------------------
+Repository: navidrome__navidrome
+Branch: instance_navidrome__navidrome-0130c6dc13438b48cf0fdfab08a89e357b5517c9
+Lines of Code: 118,854
+--------------------------------------------------
+Repository: NodeBB__NodeBB
+Branch: instance_NodeBB__NodeBB-00c70ce7b0541cfc94afe567921d7668cdc8f4ac-vnan
+Lines of Code: 327,505
+--------------------------------------------------
+Repository: protonmail__webclients
+Branch: instance_protonmail__webclients-01b519cd49e6a24d9a05d2eb97f54e420740072e
+Lines of Code: 2,942,844
+--------------------------------------------------
+Repository: qutebrowser__qutebrowser
+Branch: instance_qutebrowser__qutebrowser-01d1d1494411380d97cac14614a829d3a69cecaf-v2ef375ac784985212b1805e1d0431dc8f1b3c171
+Lines of Code: 204,695
+--------------------------------------------------
+Repository: tutao__tutanota
+Branch: instance_tutao__tutanota-09c2776c0fce3db5c6e18da92b5a45dce9f013aa-vbc0d9ba8f0071fbe982809910959a6ff8884dbbf
+Lines of Code: 819,562
+--------------------------------------------------
+
+Total Lines of Code: 9,439,111
