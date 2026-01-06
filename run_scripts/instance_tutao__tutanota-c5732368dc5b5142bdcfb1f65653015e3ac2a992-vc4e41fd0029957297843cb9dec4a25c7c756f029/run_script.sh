@@ -18,31 +18,7 @@ run_all_tests() {
 }
 
 run_selected_tests() {
-  local test_files=("$@")
-  echo "Running selected tests: ${test_files[@]}"
-  
-  export NODE_ENV=test
-  
-  for test_path in "${test_files[@]}"; do
-    echo "Processing test: $test_path"
-    
-    if [[ "$test_path" == *"|"* ]]; then
-      file_path=$(echo "$test_path" | cut -d'|' -f1 | xargs)
-      test_name=$(echo "$test_path" | cut -d'|' -f2- | xargs)
-      echo "File: $file_path, Test: $test_name"
-      
-      cd test
-      node test api || true
-      cd /app
-    else
-      echo "Running file: $test_path"
-      cd test
-      node test api || true
-      cd /app
-    fi
-  done
-  
-  echo "Selected tests completed."
+  run_all_tests
 }
 
 if [ $# -eq 0 ]; then

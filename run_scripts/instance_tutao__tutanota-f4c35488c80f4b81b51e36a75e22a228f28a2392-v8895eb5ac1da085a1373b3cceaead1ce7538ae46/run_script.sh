@@ -19,17 +19,7 @@ run_all_tests() {
 }
 
 run_selected_tests() {
-  local test_files=("$@")
-  echo "Running selected tests: ${test_files[@]}"
-  
-  export NODE_ENV=test
-  
-  echo "Note: ospec runs full test suite, filtering will be done in parsing"
-  cd test
-  node test.js || true
-  cd /app
-  
-  echo "Selected tests completed."
+  run_all_tests
 }
 
 
