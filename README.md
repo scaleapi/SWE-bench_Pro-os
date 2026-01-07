@@ -11,6 +11,8 @@ Code and data for the following works:
 
 ## News
 
+(1/7) We have fixed an issue with tutao instances where they take a long time to eval. The relevant run scripts are updated.
+
 (10/28) We added mini-swe-agent! Results are comparable to SWE-Agent for Sonnet 4.5. Feel free to give it a shot. (credit @miguelrc-scale)
 
 (10/28) We have the SWE-Agent scaffold to reproduce results and a step-by-step guide below. We have confirmed that this reproduces the Sonnet 4.5 results. (credit @18vijayb)
