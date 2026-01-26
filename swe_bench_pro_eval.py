@@ -37,10 +37,15 @@ import argparse
 import concurrent.futures
 import json
 import os
+import time
 
 import modal
 import pandas as pd
 from tqdm import tqdm
+
+# Constants for retry logic
+MAX_BUILD_RETRIES = 3
+BUILD_RETRY_DELAY = 5  # seconds
 
 
 def load_local_script(scripts_dir, instance_id, script_name):
@@ -133,14 +138,47 @@ def get_dockerhub_image_uri(uid, dockerhub_username, repo_name=""):
     return f"{dockerhub_username}/sweap-images:{tag}"
 
 
+def is_image_build_error(error: Exception) -> bool:
+    """Check if an exception is related to Docker image build failure."""
+    error_str = str(error).lower()
+    error_repr = repr(error).lower()
+    
+    build_error_indicators = [
+        "image build",
+        "skopeo copy",
+        "failed with the exception",
+        "remoteerror",
+        "image pull",
+        "registry",
+    ]
+    
+    for indicator in build_error_indicators:
+        if indicator in error_str or indicator in error_repr:
+            return True
+    
+    # Check for modal.exception.RemoteError specifically
+    if "RemoteError" in type(error).__name__:
+        return True
+    
+    return False
+
+
+def create_build_failure_output(uid: str, error: Exception, attempt: int, max_attempts: int) -> dict:
+    """Create a standardized output dict for image build failures."""
+    return {
+        "status": "image_build_fail",
+        "instance_id": uid,
+        "error": str(error),
+        "error_type": type(error).__name__,
+        "attempts": attempt,
+        "max_attempts": max_attempts,
+        "tests": []
+    }
+
+
 def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False):
     uid = sample["instance_id"]
     os.makedirs(os.path.join(output_dir, uid), exist_ok=True)
-    if not redo and os.path.exists(os.path.join(output_dir, uid, f"{prefix}_output.json")):
-        with open(os.path.join(output_dir, uid, f"{prefix}_output.json"), "r") as f:
-            return json.load(f)
-    
-    sandbox = None
     output_path = os.path.join(output_dir, uid, f"{prefix}_output.json")
     
     if not redo and os.path.exists(output_path):
@@ -149,42 +187,85 @@ def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, 
             return json.load(f)
     
     print(f"Running evaluation for {uid}")
+    
+    # Save patch file
+    with open(os.path.join(output_dir, uid, f"{prefix}_patch.diff"), "w") as f:
+        f.write(patch)
+    
+    # Load local scripts
     try:
-        with open(os.path.join(output_dir, uid, f"{prefix}_patch.diff"), "w") as f:
-            f.write(patch)
-        
-        # Load local scripts
+        run_script = load_local_script(scripts_dir, uid, "run_script.sh")
+        parser_script = load_local_script(scripts_dir, uid, "parser.py")
+    except FileNotFoundError as e:
+        print(f"Error loading scripts for {uid}: {e}")
+        return None
+    
+    # Use Docker Hub image instead of ECR
+    dockerhub_image_uri = get_dockerhub_image_uri(uid, dockerhub_username, sample.get("repo", ""))
+    print(f"Using Docker Hub image: {dockerhub_image_uri}")
+    
+    # Retry loop for sandbox creation (handles image build failures)
+    sandbox = None
+    last_error = None
+    
+    for attempt in range(1, MAX_BUILD_RETRIES + 1):
         try:
-            run_script = load_local_script(scripts_dir, uid, "run_script.sh")
-            parser_script = load_local_script(scripts_dir, uid, "parser.py")
-        except FileNotFoundError as e:
-            print(f"Error loading scripts for {uid}: {e}")
-            return None
-        
-        app = modal.App.lookup(name="swe-bench-pro-eval", create_if_missing=True)
-        
-        # Use Docker Hub image instead of ECR
-        dockerhub_image_uri = get_dockerhub_image_uri(uid, dockerhub_username, sample.get("repo", ""))
-        print(f"Using Docker Hub image: {dockerhub_image_uri}")
-        
-        image = modal.Image.from_registry(
-            dockerhub_image_uri,
-            setup_dockerfile_commands=[
-                "RUN (apt update && apt install -y python3-pip) || (apk update && apk add py3-pip) || true",
-                "RUN python -m pip config set global.break-system-packages true || true",
-                "RUN pip install requests || true",
-            ],
-        ).entrypoint([])
+            app = modal.App.lookup(name="swe-bench-pro-eval", create_if_missing=True)
+            
+            image = modal.Image.from_registry(
+                dockerhub_image_uri,
+                setup_dockerfile_commands=[
+                    "RUN (apt update && apt install -y python3-pip) || (apk update && apk add py3-pip) || true",
+                    "RUN python -m pip config set global.break-system-packages true || true",
+                    "RUN pip install requests || true",
+                ],
+            ).entrypoint([])
 
-        sandbox = modal.Sandbox.create(
-            image=image,
-            app=app,
-            timeout=60 * 60,
-            cpu=(1, 4),
-            memory=(5 * 1024, 30 * 1024),
-            block_network=block_network,
-        )
-        
+            sandbox = modal.Sandbox.create(
+                image=image,
+                app=app,
+                timeout=10 * 60,  # 10 minutes timeout
+                cpu=(1, 4),
+                memory=(5 * 1024, 30 * 1024),
+                block_network=block_network,
+            )
+            
+            # If we get here, sandbox was created successfully
+            break
+            
+        except Exception as e:
+            last_error = e
+            error_msg = f"Attempt {attempt}/{MAX_BUILD_RETRIES} - Sandbox creation failed for {uid}: {repr(e)}"
+            print(error_msg)
+            
+            if is_image_build_error(e):
+                if attempt < MAX_BUILD_RETRIES:
+                    print(f"  Image build error detected. Retrying in {BUILD_RETRY_DELAY} seconds...")
+                    time.sleep(BUILD_RETRY_DELAY)
+                else:
+                    # Max retries reached for build error - save failure output and move on
+                    print(f"  Max retries ({MAX_BUILD_RETRIES}) reached for image build failure. Moving to next instance.")
+                    build_fail_output = create_build_failure_output(uid, e, attempt, MAX_BUILD_RETRIES)
+                    with open(output_path, "w") as f:
+                        json.dump(build_fail_output, f, indent=2)
+                    return build_fail_output
+            else:
+                # Non-build error, don't retry
+                print(f"  Non-build error encountered. Not retrying.")
+                return None
+    
+    # If sandbox is still None after retries, something went wrong
+    if sandbox is None:
+        print(f"Failed to create sandbox for {uid} after {MAX_BUILD_RETRIES} attempts")
+        if last_error:
+            build_fail_output = create_build_failure_output(uid, last_error, MAX_BUILD_RETRIES, MAX_BUILD_RETRIES)
+            with open(output_path, "w") as f:
+                json.dump(build_fail_output, f, indent=2)
+            return build_fail_output
+        return None
+    
+    # Sandbox created successfully, proceed with evaluation
+    try:
         process = sandbox.exec("mkdir", "-p", "/workspace")
         process.wait()
         
@@ -221,7 +302,7 @@ def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, 
         try:
             with sandbox.open("/workspace/output.json", "r") as f_in:
                 output = json.load(f_in)
-                with open(os.path.join(output_dir, uid, f"{prefix}_output.json"), "w") as f:
+                with open(output_path, "w") as f:
                     json.dump(output, f)
         except FileNotFoundError:
             print(
@@ -355,6 +436,19 @@ def main():
                         "FAIL_TO_PASS": "",
                         "error": "Evaluation returned None"
                     }
+                elif output.get("status") == "image_build_fail":
+                    # Handle image build failure - preserve the status for Google Sheets
+                    instance_id = patch_sample["instance_id"]
+                    print(f'Image build failed for {instance_id} after {output.get("attempts", "?")} attempts')
+                    eval_results[instance_id] = {
+                        "status": "image_build_fail",
+                        "resolved": False,
+                        "PASS_TO_PASS": "",
+                        "FAIL_TO_PASS": "",
+                        "error": output.get("error", "Image build failed"),
+                        "error_type": output.get("error_type", "Unknown"),
+                        "attempts": output.get("attempts", 0)
+                    }
                 else:
                     instance_id = patch_sample["instance_id"]
                     if instance_id not in raw_sample_df.index:
@@ -368,7 +462,7 @@ def main():
                         }
                     else:
                         raw_sample = raw_sample_df.loc[instance_id]
-                        passed_tests = {x["name"] for x in output["tests"] if x["status"] == "PASSED"}
+                        passed_tests = {x["name"] for x in output.get("tests", []) if x["status"] == "PASSED"}
                         f2p = set(eval(raw_sample["fail_to_pass"]))
                         p2p = set(eval(raw_sample["pass_to_pass"]))
                         
