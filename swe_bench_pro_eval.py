@@ -37,11 +37,15 @@ import argparse
 import concurrent.futures
 import json
 import os
+import subprocess
+import tempfile
 import time
 
-import modal
 import pandas as pd
 from tqdm import tqdm
+
+# modal is imported lazily only when needed (not used with --use_local_docker)
+modal = None
 
 # Constants for retry logic
 MAX_BUILD_RETRIES = 3
@@ -93,33 +97,56 @@ python /workspace/parser.py /workspace/stdout.log /workspace/stderr.log /workspa
     return entry_script
 
 
+# ── Instance-to-Docker-Hub-tag mapping ──────────────────────────────────────────
+# Loaded once from a JSON file that maps every known instance_id to its exact
+# Docker Hub tag.  This eliminates all edge-case tag-construction logic.
+_INSTANCE_TAG_MAP = None  # lazily loaded
+
+
+def _load_instance_tag_map():
+    """Load the instance-to-tag mapping from the JSON file (once)."""
+    global _INSTANCE_TAG_MAP
+    if _INSTANCE_TAG_MAP is not None:
+        return _INSTANCE_TAG_MAP
+
+    # The mapping file lives next to the SPB_Eval_Pipeline directory
+    mapping_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "SPB_Eval_Pipeline",
+        "instance_to_tag_mapping.json",
+    )
+    if not os.path.exists(mapping_path):
+        raise FileNotFoundError(
+            f"Instance-to-tag mapping file not found: {mapping_path}\n"
+            "Run the tag-mapping generation script first."
+        )
+    with open(mapping_path, "r") as f:
+        _INSTANCE_TAG_MAP = json.load(f)
+    print(f"Loaded {len(_INSTANCE_TAG_MAP)} instance-to-tag mappings from {mapping_path}")
+    return _INSTANCE_TAG_MAP
+
+
 def create_dockerhub_tag(uid, repo_name=""):
     """
-    Convert instance_id and repo name to Docker Hub compatible tag format.
-    This must match the format used in the upload script.
-    
+    Look up the Docker Hub tag for a given instance_id from the pre-built mapping.
+
     Args:
         uid (str): The instance_id (e.g., "instance_NodeBB__NodeBB-abc123-vdef456")
-        repo_name (str): The repository name (e.g., "NodeBB/NodeBB")
-        
+        repo_name (str): Unused, kept for backward compatibility.
+
     Returns:
-        str: Docker Hub compatible tag (e.g., "nodebb.nodebb-NodeBB__NodeBB-abc123-vdef456")
+        str: Docker Hub tag for this instance.
+
+    Raises:
+        KeyError: If the instance_id is not found in the mapping.
     """
-    # Format: {org}.{repo}-{instance_id_without_prefix}
-    # Example: nodebb.nodebb-NodeBB__NodeBB-3ad6ee075b4524cff8ca39a92a68ad9ad9733de3-v2c59007b1...
-    if repo_name and "/" in repo_name:
-        org, repo = repo_name.split("/", 1)
-        image_prefix = f"{org.lower()}.{repo.lower()}"
-    else:
-        image_prefix = "default"
-    
-    # Strip "instance_" prefix from uid if present
-    if uid.startswith("instance_"):
-        uid_part = uid[9:]  # len("instance_") = 9
-    else:
-        uid_part = uid
-    
-    return f"{image_prefix}-{uid_part}"
+    tag_map = _load_instance_tag_map()
+    if uid in tag_map:
+        return tag_map[uid]
+    raise KeyError(
+        f"Instance '{uid}' not found in instance_to_tag_mapping.json. "
+        "Regenerate the mapping or add this instance manually."
+    )
 
 
 def get_dockerhub_image_uri(uid, dockerhub_username, repo_name=""):
@@ -177,6 +204,11 @@ def create_build_failure_output(uid: str, error: Exception, attempt: int, max_at
 
 
 def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False):
+    global modal
+    if modal is None:
+        import modal as _modal
+        modal = _modal
+
     uid = sample["instance_id"]
     os.makedirs(os.path.join(output_dir, uid), exist_ok=True)
     output_path = os.path.join(output_dir, uid, f"{prefix}_output.json")
@@ -336,6 +368,205 @@ def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, 
                 pass
 
 
+def eval_with_local_docker(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False):
+    """Evaluate a patch using local Docker instead of Modal sandboxes."""
+    uid = sample["instance_id"]
+    os.makedirs(os.path.join(output_dir, uid), exist_ok=True)
+    output_path = os.path.join(output_dir, uid, f"{prefix}_output.json")
+
+    if not redo and os.path.exists(output_path):
+        print(f"Skipping {uid} - output already exists")
+        with open(output_path, "r") as f:
+            return json.load(f)
+
+    print(f"Running LOCAL DOCKER evaluation for {uid}")
+
+    # Save patch file
+    with open(os.path.join(output_dir, uid, f"{prefix}_patch.diff"), "w") as f:
+        f.write(patch)
+
+    # Load local scripts
+    try:
+        run_script = load_local_script(scripts_dir, uid, "run_script.sh")
+        parser_script = load_local_script(scripts_dir, uid, "parser.py")
+    except FileNotFoundError as e:
+        print(f"Error loading scripts for {uid}: {e}")
+        return None
+
+    # Use Docker Hub image
+    dockerhub_image_uri = get_dockerhub_image_uri(uid, dockerhub_username, sample.get("repo", ""))
+    print(f"Using Docker Hub image: {dockerhub_image_uri}")
+
+    container_name = f"swe-bench-eval-{uid}".replace("/", "-")[:128]
+    entryscript_content = create_entryscript(sample)
+
+    # Write workspace files to a temp directory to docker-cp into the container
+    tmpdir = None
+    try:
+        tmpdir = tempfile.mkdtemp(prefix="swe_eval_")
+        patch_path_local = os.path.join(tmpdir, "patch.diff")
+        run_script_path = os.path.join(tmpdir, "run_script.sh")
+        parser_path = os.path.join(tmpdir, "parser.py")
+        entry_path = os.path.join(tmpdir, "entryscript.sh")
+
+        with open(patch_path_local, "w") as f:
+            f.write(patch)
+        with open(run_script_path, "w") as f:
+            f.write(run_script)
+        with open(parser_path, "w") as f:
+            f.write(parser_script)
+        with open(entry_path, "w") as f:
+            f.write(entryscript_content)
+
+        # Save entryscript locally for debugging
+        with open(os.path.join(output_dir, uid, f"{prefix}_entryscript.sh"), "w") as f:
+            f.write(entryscript_content)
+
+        # Pull the image
+        print(f"  Pulling image {dockerhub_image_uri}...")
+        pull_result = subprocess.run(
+            ["docker", "pull", dockerhub_image_uri],
+            capture_output=True, text=True, timeout=600
+        )
+        if pull_result.returncode != 0:
+            print(f"  Failed to pull image for {uid}: {pull_result.stderr}")
+            build_fail_output = {
+                "status": "image_build_fail",
+                "instance_id": uid,
+                "error": f"docker pull failed: {pull_result.stderr}",
+                "error_type": "DockerPullError",
+                "attempts": 1,
+                "max_attempts": 1,
+                "tests": []
+            }
+            with open(output_path, "w") as f:
+                json.dump(build_fail_output, f, indent=2)
+            return build_fail_output
+
+        # Create and start container
+        print(f"  Creating container for {uid}...")
+        create_result = subprocess.run(
+            ["docker", "create", "--name", container_name,
+             "--entrypoint", "", dockerhub_image_uri,
+             "sleep", "infinity"],
+            capture_output=True, text=True, timeout=120
+        )
+        if create_result.returncode != 0:
+            print(f"  Failed to create container for {uid}: {create_result.stderr}")
+            return None
+
+        subprocess.run(
+            ["docker", "start", container_name],
+            capture_output=True, text=True, timeout=60
+        )
+
+        # Create /workspace inside container
+        subprocess.run(
+            ["docker", "exec", container_name, "mkdir", "-p", "/workspace"],
+            capture_output=True, text=True, timeout=30
+        )
+
+        # Copy workspace files into container
+        for local_file, container_dest in [
+            (patch_path_local, "/workspace/patch.diff"),
+            (run_script_path, "/workspace/run_script.sh"),
+            (parser_path, "/workspace/parser.py"),
+            (entry_path, "/workspace/entryscript.sh"),
+        ]:
+            cp_result = subprocess.run(
+                ["docker", "cp", local_file, f"{container_name}:{container_dest}"],
+                capture_output=True, text=True, timeout=30
+            )
+            if cp_result.returncode != 0:
+                print(f"  Failed to copy {local_file} into container: {cp_result.stderr}")
+                return None
+
+        # Execute the entry script (10 min timeout)
+        print(f"  Running entry script for {uid}...")
+        exec_result = subprocess.run(
+            ["docker", "exec", container_name, "bash", "/workspace/entryscript.sh"],
+            capture_output=True, text=True, timeout=600
+        )
+        if exec_result.returncode != 0:
+            print(f"  Entry script failed for {uid} with return code: {exec_result.returncode}")
+            if exec_result.stderr:
+                print(f"  Stderr (first 1000 chars): {exec_result.stderr[:1000]}")
+
+        # Copy output files from container
+        output_json_local = os.path.join(tmpdir, "output.json")
+        stdout_log_local = os.path.join(tmpdir, "stdout.log")
+        stderr_log_local = os.path.join(tmpdir, "stderr.log")
+
+        # Copy output.json
+        cp_out = subprocess.run(
+            ["docker", "cp", f"{container_name}:/workspace/output.json", output_json_local],
+            capture_output=True, text=True, timeout=30
+        )
+        if cp_out.returncode != 0:
+            print(f"  Warning: output.json not found for {uid}. Check logs for details.")
+            # Still try to grab logs
+            subprocess.run(
+                ["docker", "cp", f"{container_name}:/workspace/stdout.log", stdout_log_local],
+                capture_output=True, text=True, timeout=30
+            )
+            subprocess.run(
+                ["docker", "cp", f"{container_name}:/workspace/stderr.log", stderr_log_local],
+                capture_output=True, text=True, timeout=30
+            )
+            # Save whatever logs we got
+            for log_file, dest_name in [(stdout_log_local, f"{prefix}_stdout.log"), (stderr_log_local, f"{prefix}_stderr.log")]:
+                if os.path.exists(log_file):
+                    with open(log_file, "r") as fin:
+                        with open(os.path.join(output_dir, uid, dest_name), "w") as fout:
+                            fout.write(fin.read())
+            return None
+
+        # Read and save output
+        with open(output_json_local, "r") as f:
+            output = json.load(f)
+        with open(output_path, "w") as f:
+            json.dump(output, f, indent=2)
+
+        # Copy and save logs
+        subprocess.run(
+            ["docker", "cp", f"{container_name}:/workspace/stdout.log", stdout_log_local],
+            capture_output=True, text=True, timeout=30
+        )
+        subprocess.run(
+            ["docker", "cp", f"{container_name}:/workspace/stderr.log", stderr_log_local],
+            capture_output=True, text=True, timeout=30
+        )
+        for log_file, dest_name in [(stdout_log_local, f"{prefix}_stdout.log"), (stderr_log_local, f"{prefix}_stderr.log")]:
+            if os.path.exists(log_file):
+                with open(log_file, "r") as fin:
+                    with open(os.path.join(output_dir, uid, dest_name), "w") as fout:
+                        fout.write(fin.read())
+
+        return output
+
+    except subprocess.TimeoutExpired:
+        print(f"  Timeout expired for {uid}")
+        return None
+    except Exception as e:
+        print(f"Error in eval_with_local_docker for {uid}: {repr(e)}")
+        print(f"Error type: {type(e)}")
+        return None
+    finally:
+        # Clean up container
+        try:
+            subprocess.run(["docker", "rm", "-f", container_name],
+                           capture_output=True, text=True, timeout=30)
+        except Exception:
+            pass
+        # Clean up temp dir
+        if tmpdir and os.path.exists(tmpdir):
+            try:
+                import shutil
+                shutil.rmtree(tmpdir)
+            except Exception:
+                pass
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Run SWEAP Pro evaluations with Modal using Docker Hub images and local scripts")
     parser.add_argument("--raw_sample_path", required=True, help="Path to the raw sample CSV file")
@@ -360,6 +591,10 @@ def parse_args():
     )
     parser.add_argument(
         "--block_network", action="store_true", help="Block network access for Modal"
+    )
+    parser.add_argument(
+        "--use_local_docker", action="store_true",
+        help="Use local Docker instead of Modal for evaluation (pulls images from Docker Hub, runs containers locally)"
     )
     return parser.parse_args()
 
@@ -402,12 +637,21 @@ def main():
             print(f"  ... and {len(missing_instances) - 5} more")
         print(f"Proceeding with {len(valid_patches)} valid patches out of {len(patches_to_run)} total patches")
 
+    # Select eval function based on --use_local_docker flag
+    use_local = getattr(args, "use_local_docker", False)
+    if use_local:
+        print(">>> Using LOCAL DOCKER evaluation mode <<<")
+        eval_fn = lambda patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False: \
+            eval_with_local_docker(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix=prefix, redo=redo)
+    else:
+        eval_fn = eval_with_modal
+
     # Use ThreadPoolExecutor to run evaluations in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.num_workers) as executor:
         # Create a dictionary mapping futures to their patch samples for progress tracking
         future_to_patch = {
             executor.submit(
-                eval_with_modal,
+                eval_fn,
                 patch_sample.get("model_patch", patch_sample.get("patch", "")),
                 raw_sample_df.loc[patch_sample["instance_id"]],
                 args.output_dir,
