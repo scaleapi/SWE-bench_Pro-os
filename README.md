@@ -11,6 +11,8 @@ Code and data for the following works:
 
 ## News
 
+(2/9) We have removed some unit tests which were outdated (e.g. required the year 2025) or were previously not intended to be included. 
+
 (1/7) We have fixed an issue with tutao instances where they take a long time to eval. The relevant run scripts are updated.
 
 (10/28) We added mini-swe-agent! Results are comparable to SWE-Agent for Sonnet 4.5. Feel free to give it a shot. (credit @miguelrc-scale)
@@ -31,40 +33,60 @@ from datasets import load_dataset
 swebench = load_dataset('ScaleAI/SWE-bench_Pro', split='test')
 ```
 
-## Setup
+## Installation
+
+### 1. Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Install Docker
+
 SWE-bench Pro uses Docker for reproducible evaluations.
-In addition, the evaluation script requires Modal to scale the evaluation set.
 
 Follow the instructions in the [Docker setup guide](https://docs.docker.com/engine/install/) to install Docker on your machine.
 If you're setting up on Linux, we recommend seeing the [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/) as well.
 
-Run the following commands to store modal credentials:
-```
-pip install modal
-modal setup # and follow the prompts to generate your token and secret
+### 3. Configure Modal (Recommended) (or use local docker [Beta])
+
+```bash
+modal setup  # Follow the prompts to generate your token
 ```
 
-After running these steps, you should be able to see a token ID and secret in  `~/.modal.toml`:
-EG:
+After running, verify your credentials in `~/.modal.toml`:
 ```
 token_id = <token id>
 token_secret = <token secret>
 active = true
 ```
 
-We store prebuilt Docker images for each instance. They can be found in this directory:
+Beta: Local Docker. No additional setup needed. Use the `--use_local_docker` flag when running evaluations.
 
-https://hub.docker.com/r/jefzda/sweap-images
+## Docker Images
 
-The format of the images is as follows.
+We provide prebuilt Docker images for each instance on Docker Hub:
 
-`jefzda/sweap-images:{repo_base}.{repo_name}-{repo_base}__{repo_name}-{hash}`
+**Repository:** https://hub.docker.com/r/jefzda/sweap-images
 
-For example:
+### Finding the Correct Image
 
-`jefzda/sweap-images:gravitational.teleport-gravitational__teleport-82185f232ae8974258397e121b3bc2ed0c3729ed-v626ec2a48416b10a88641359a169d99e935ff03`
+Each instance in the HuggingFace dataset has a `dockerhub_tag` column containing the Docker tag for that instance. You can access it directly:
 
-Note that bash runs by default in our images. e.g. when running these images, you should not manually envoke bash. See https://github.com/scaleapi/SWE-bench_Pro-os/issues/6
+```python
+from datasets import load_dataset
+
+dataset = load_dataset('ScaleAI/SWE-bench_Pro', split='test')
+
+# Get the Docker image for a specific instance
+for row in dataset:
+    instance_id = row['instance_id']
+    docker_tag = row['dockerhub_tag']
+    full_image = f"jefzda/sweap-images:{docker_tag}"
+    print(f"{instance_id} -> {full_image}")
+```
+
+**Important:** Bash runs by default in our images. When running these images, you should not manually invoke bash. See https://github.com/scaleapi/SWE-bench_Pro-os/issues/6
 
 ## Usage
 
@@ -113,7 +135,8 @@ This will create a JSON file in the format expected by the evaluation script:
 ```
 
 ### 3. Evaluate Patches
-Evaluate patch predictions on SWE-Bench Pro with the following command. (`swe_bench_pro_full.csv` is the CSV in the HuggingFace dataset)
+
+Evaluate patch predictions on SWE-Bench Pro:
 
 ```bash
 python swe_bench_pro_eval.py \
@@ -125,8 +148,7 @@ python swe_bench_pro_eval.py \
     --dockerhub_username=jefzda
 ```
 
-Replace gold_patches with your patch json, and point raw_sample_path to the SWE-Bench Pro CSV.
-Gold Patches can be compiled from the HuggingFace dataset.
+You can test with the gold patches, which are in the HuggingFace dataset. There is a helper script in `helper_code` which can extract the gold patches into the required JSON format.
 
 ## Reproducing Leaderboard Results
 
@@ -136,6 +158,5 @@ To reproduce leaderboard results end-to-end, follow the following steps:
 2. Run the scaffold. We have included an example for Claude Sonnet 4.5 (claude.yaml) but feel free to use any model. It also supports `vllm` for local models. Note that we recommend using the DockerHub images rather than building the Docker images from scratch. You can also execute it locally without Modal.
 3. Compile predictions with helper_code/gather_patches.py.
 4. Run the evaluation script `swe_bench_pro_eval.py` to run the evaluation script.
-
 
 
