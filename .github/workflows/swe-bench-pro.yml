@@ -1,0 +1,11 @@
+name: SWE-Bench Pro Evaluation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hello World
+        run: echo "hello world"
