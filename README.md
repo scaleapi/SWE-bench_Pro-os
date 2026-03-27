@@ -7,7 +7,7 @@ Code and data for the following works:
 
 * Public Leaderboard: <a href="https://scale.com/leaderboard/swe_bench_pro_public">https://scale.com/leaderboard/swe_bench_pro_public</a>
 
-* Commercial (Private) Leaderboard: <a href="https://labs.scale.com/leaderboard/swe_bench_pro_private">https://scale.com/leaderboard/swe_bench_pro_commercial</a>
+* Commercial (Private) Leaderboard: <a href="https://labs.scale.com/leaderboard/swe_bench_pro_private">https://labs.scale.com/leaderboard/swe_bench_pro_private</a>
 
 ## News
 
