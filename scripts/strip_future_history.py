@@ -1,5 +1,5 @@
 """
-Patch every SWE-Bench PRo instance Dockerfile to strip future git history.
+Patch every SWE-Bench Pro instance Dockerfile to strip future git history.
 
 Each instance Dockerfile has a heredoc ending in something like:
 
@@ -118,14 +118,14 @@ def main() -> int:
         return 2
 
     counts = {"patched": 0, "already-patched": 0, "no-checkout": 0, "multi-checkout": 0}
-    examples: dict[str, list[str]] = {k: [] for k in counts}
+    examples: dict[str, str | None] = {k: None for k in counts}
 
     for dockerfile in sorted(args.root.glob("*/Dockerfile")):
         text = dockerfile.read_text()
         new_text, status = patch_text(text, with_assertion=args.with_assertion)
         counts[status] += 1
-        if len(examples[status]) < 3:
-            examples[status].append(dockerfile.parent.name)
+        if examples[status] is None:
+            examples[status] = dockerfile.parent.name
 
         if new_text is None:
             continue
@@ -147,11 +147,8 @@ def main() -> int:
     mode = "APPLIED" if args.apply else "DRY-RUN"
     print(f"=== {mode} summary across {sum(counts.values())} Dockerfiles ===")
     for status, n in counts.items():
-        print(f"  {status:18s} {n:4d}", end="")
-        if examples[status]:
-            print(f"  e.g. {examples[status][0]}")
-        else:
-            print()
+        suffix = f"  e.g. {examples[status]}" if examples[status] else ""
+        print(f"  {status:18s} {n:4d}{suffix}")
     if not args.apply and counts["patched"] > 0:
         print("\nRe-run with --apply to write the changes.")
     return 0 if counts["no-checkout"] == 0 and counts["multi-checkout"] == 0 else 1
