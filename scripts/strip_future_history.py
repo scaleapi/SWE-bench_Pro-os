@@ -20,7 +20,6 @@ Usage:
     python3 strip_future_history.py                          # dry-run, prints summary
     python3 strip_future_history.py --apply                  # write changes
     python3 strip_future_history.py --apply --with-assertion # also embed a build-time leak assertion in each file
-    python3 strip_future_history.py --diff                   # dry-run + show diffs
 
 The script is idempotent, re-running on already-patched files is a no-op.
 
@@ -31,7 +30,6 @@ the docker build if any future commit is still reachable after the cleanup.
 from __future__ import annotations
 
 import argparse
-import difflib
 import re
 import sys
 from pathlib import Path
@@ -46,19 +44,11 @@ MARKER = "# Strip future git history so the agent can't reach the reference fix.
 # This mirrors SWE-bench Verified's hardening (swebench/harness/test_spec/python.py).
 CLEANUP_CORE = """
 # Strip future git history so the agent can't reach the reference fix.
-echo "===== HEAD before cleanup ====="
-git log -1 --format='HEAD = %H%n  date    = %aI%n  subject = %s' HEAD
-echo "==============================="
 git remote remove origin 2>/dev/null || true
-git for-each-ref --format='delete %(refname)' refs/remotes refs/tags \\
-  | git update-ref --stdin
-HEAD_BRANCH=$(git symbolic-ref --short -q HEAD || true)
-git for-each-ref refs/heads/ --format='%(refname:short)' | while read -r b; do
-  [ "$b" = "$HEAD_BRANCH" ] || git branch -D "$b"
-done
+git for-each-ref --format='delete %(refname)' refs/heads refs/remotes refs/tags | git update-ref --stdin
 rm -f .git/FETCH_HEAD .git/ORIG_HEAD
 git reflog expire --expire=now --all
-git gc --prune=now --aggressive
+git gc --prune=now
 """
 
 # Optional build-time assertion, appended only when --with-assertion is passed.
@@ -99,7 +89,6 @@ def main() -> int:
     ap.add_argument(
         "--apply", action="store_true", help="write changes (default: dry-run)"
     )
-    ap.add_argument("--diff", action="store_true", help="print unified diffs")
     ap.add_argument(
         "--with-assertion",
         action="store_true",
@@ -129,16 +118,6 @@ def main() -> int:
 
         if new_text is None:
             continue
-
-        if args.diff:
-            diff = difflib.unified_diff(
-                text.splitlines(keepends=True),
-                new_text.splitlines(keepends=True),
-                fromfile=str(dockerfile.relative_to(args.root)) + " (before)",
-                tofile=str(dockerfile.relative_to(args.root)) + " (after)",
-                n=3,
-            )
-            sys.stdout.writelines(diff)
 
         if args.apply:
             dockerfile.write_text(new_text)
