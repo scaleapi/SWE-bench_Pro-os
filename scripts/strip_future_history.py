@@ -24,11 +24,8 @@ Usage:
 
 The script is idempotent, re-running on already-patched files is a no-op.
 
-Note on --with-assertion: off by default. The assertion adds ~5 lines per file
-that fail the docker build if any future commit is still reachable after the
-cleanup. Useful as a CI gate when iterating on the cleanup recipe; redundant
-once the recipe is known-good (the smoke test runner already verifies this
-out-of-band).
+Note on --with-assertion: off by default. The assertion adds 5 lines per file that fail
+the docker build if any future commit is still reachable after the cleanup.
 """
 
 from __future__ import annotations
@@ -59,14 +56,14 @@ HEAD_BRANCH=$(git symbolic-ref --short -q HEAD || true)
 git for-each-ref refs/heads/ --format='%(refname:short)' | while read -r b; do
   [ "$b" = "$HEAD_BRANCH" ] || git branch -D "$b"
 done
+rm -f .git/FETCH_HEAD .git/ORIG_HEAD
 git reflog expire --expire=now --all
 git gc --prune=now --aggressive
 """
 
 # Optional build-time assertion, appended only when --with-assertion is passed.
 ASSERTION_BLOCK = """
-# Assertion: no commit reachable from any ref dates after HEAD. Fails the
-# image build if the cleanup missed anything.
+# Assertion: no commit reachable from any ref dates after HEAD. Fails the image build if the cleanup missed anything.
 TARGET_TIMESTAMP=$(git show -s --format=%ci HEAD)
 AFTER_TIMESTAMP=$(date -d "$TARGET_TIMESTAMP + 1 second" '+%Y-%m-%d %H:%M:%S')
 COMMIT_COUNT=$(git log --oneline --all --since="$AFTER_TIMESTAMP" | wc -l)
