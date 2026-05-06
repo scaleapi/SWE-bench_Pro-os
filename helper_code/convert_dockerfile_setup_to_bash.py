@@ -30,6 +30,7 @@ Usage:
     convert_dockerfile_setup_to_bash.py --instance-id <iid> --skip-apt --no-date-pin
 """
 import argparse
+import functools
 import re
 import sys
 from dataclasses import dataclass, field
@@ -44,8 +45,6 @@ PYTHON_VERSION_RE = re.compile(r"python:(\d+(?:\.\d+){0,2})")
 FROM_RE = re.compile(r"^FROM\s+(\S+)", re.MULTILINE)
 ENV_RE = re.compile(r"^ENV\s+(.+)$", re.MULTILINE)
 
-
-# --- Outer loop: instance_id -> Dockerfile contents ---
 
 def list_local_instances() -> list[str]:
     return sorted(p.name for p in BASE_DIR.iterdir() if p.is_dir())
@@ -77,39 +76,37 @@ def get_python_version(base_content: str) -> str:
     return pm.group(1) if pm else ""
 
 
-# --- Sections dataclass ---
-
 @dataclass
 class SetupSections:
     """Parsed pieces of a task's setup, separated by phase.
 
-    Use the ``*_bash()`` helpers to render a single phase, or
-    :meth:`to_bash` to render the whole script. Compose your own driver
-    by concatenating only the phases you need.
+    Call :meth:`to_bash` to render the whole script, or access individual
+    fields (``apt_install``, ``preprocess_body``, etc.) to compose only the
+    phases you need. The ``*_bash()`` helpers exist where the field alone
+    doesn't produce ready-to-use bash (e.g. ``env_bash`` joins a list).
     """
 
     instance_id: str
     python_version: str = ""
+    # ``export KEY=VALUE`` lines sourced from ENV directives in both Dockerfiles.
     env_exports: list[str] = field(default_factory=list)
+    # The ``apt-get install`` block from the base Dockerfile (single string).
     apt_install: str = ""
+    # Non-apt RUN/WORKDIR steps from the base Dockerfile translated to bash:
+    # typically ``mkdir /app``, ``git clone``, ``git checkout``, ``ln -sf``, etc.
+    # uv pip lines are excluded — uv isn't installed yet at this stage.
     base_runs: list[str] = field(default_factory=list)
+    # Body of the EOFPREP heredoc: ``git reset --hard <base_commit>`` + ``git clean``.
     preprocess_body: str = ""
+    # Body of the EOFBUILD heredoc: pip/uv installs, build steps, env vars.
+    # pypi-timemachine boilerplate is stripped and replaced by UV_EXCLUDE_NEWER.
     python_setup_body: str = ""
 
     def env_bash(self) -> str:
         return "\n".join(self.env_exports)
 
-    def system_setup_bash(self) -> str:
-        return self.apt_install
-
     def base_runs_bash(self) -> str:
         return "\n".join(self.base_runs)
-
-    def preprocess_bash(self) -> str:
-        return self.preprocess_body
-
-    def python_setup_bash(self) -> str:
-        return self.python_setup_body
 
     def uv_env_bash(self) -> str:
         """Return the UV install + venv creation block for Ubuntu 24.
@@ -160,8 +157,6 @@ class SetupSections:
         return "\n".join(parts)
 
 
-# --- Parsing primitives ---
-
 def _iter_bash_steps(content: str):
     """Yield each Dockerfile instruction translated to a bash step.
 
@@ -186,13 +181,17 @@ def _iter_bash_steps(content: str):
         i += 1
 
 
+@functools.lru_cache(maxsize=8)
+def _heredoc_re(tag: str) -> re.Pattern:
+    return re.compile(rf"<<'?{tag}'?[^\n]*\n(.*?)\n\s*{tag}\s*$", re.DOTALL | re.MULTILINE)
+
+
 def _extract_heredoc(content: str, tag: str) -> str:
     """Extract the body of ``RUN cat <<'TAG' > /file.sh … TAG``.
 
     Strips a leading shebang if present.
     """
-    pattern = rf"<<'?{tag}'?[^\n]*\n(.*?)\n\s*{tag}\s*$"
-    m = re.search(pattern, content, re.DOTALL | re.MULTILINE)
+    m = _heredoc_re(tag).search(content)
     if not m:
         return ""
     body_lines = m.group(1).split("\n")
@@ -210,6 +209,7 @@ _PIP_CONFIG_INDEX_RE = re.compile(r"^pip\s+config\s+set\s+global\.index-url\s+(\
 _PYTHON_PIP_RE = re.compile(r"^python3?\s+-m\s+pip\s+(.*)$")
 _PIP_VERB_RE = re.compile(rf"^pip\s+({_PIP_VERBS})\b(.*)$")
 _TIMEMACHINE_DATE_RE = re.compile(r"pypi-timemachine\s+(\d{4}-\d{2}-\d{2})\b")
+_UNSUPPORTED_UV_FLAGS_RE = re.compile(r"\s+--default-timeout=\d+")
 
 
 def extract_timemachine_date(build_body: str) -> str:
@@ -246,12 +246,14 @@ def to_uv(body: str) -> str:
 
         m = _PYTHON_PIP_RE.match(stripped)
         if m:
-            out.append(f"{indent}uv pip {m.group(1)}")
+            rest = _UNSUPPORTED_UV_FLAGS_RE.sub("", m.group(1))
+            out.append(f"{indent}uv pip {rest}")
             continue
 
         m = _PIP_VERB_RE.match(stripped)
         if m:
-            out.append(f"{indent}uv pip {m.group(1)}{m.group(2)}")
+            rest = _UNSUPPORTED_UV_FLAGS_RE.sub("", m.group(2))
+            out.append(f"{indent}uv pip {m.group(1)}{rest}")
             continue
 
         out.append(line)
@@ -279,8 +281,6 @@ def drop_pypi_timemachine(build_body: str) -> str:
     return "\n".join(keep)
 
 
-# --- High-level API ---
-
 def build_sections(
     iid: str,
     *,
@@ -302,8 +302,10 @@ def build_sections(
     """
     if base_content is None or instance_content is None:
         loaded_base, loaded_instance = load_local(iid)
-        base_content = base_content if base_content is not None else loaded_base
-        instance_content = instance_content if instance_content is not None else loaded_instance
+        if base_content is None:
+            base_content = loaded_base
+        if instance_content is None:
+            instance_content = loaded_instance
 
     apt_install = ""
     base_runs: list[str] = []
@@ -311,7 +313,12 @@ def build_sections(
         if _is_apt(step):
             apt_install = step
         else:
-            base_runs.append(to_uv(step))
+            translated = to_uv(step)
+            # Skip any uv pip calls in base_runs: uv is not installed yet at this
+            # stage, so pip-upgrade lines from the base Dockerfile would fail.
+            if any(line.lstrip().startswith("uv pip ") for line in translated.splitlines()):
+                continue
+            base_runs.append(translated)
 
     build_body = _extract_heredoc(instance_content, "EOFBUILD")
     date = extract_timemachine_date(build_body)
@@ -319,13 +326,31 @@ def build_sections(
     build_body = to_uv(build_body)
     if date and not no_date_pin:
         build_body = f"export UV_EXCLUDE_NEWER={date}\n{build_body}"
+    # Editable installs need a modern setuptools (build_editable added in v64,
+    # Aug 2022). UV_EXCLUDE_NEWER may pin setuptools too old, so bypass it.
+    build_body = re.sub(
+        r"^uv pip install -e \.$",
+        "uv pip install --upgrade pip wheel\n"
+        'echo "installing setuptools without datepinning"\n'
+        "env -u UV_EXCLUDE_NEWER uv pip install --upgrade setuptools\n"
+        'echo "installing in an eddiatble way without datepinning"\n'
+        "env -u UV_EXCLUDE_NEWER uv pip install -e .",
+        build_body,
+        flags=re.MULTILINE,
+    )
 
     return SetupSections(
         instance_id=iid,
         python_version=get_python_version(base_content),
         env_exports=[
-            f"export {m.group(1)}"
+            # Normalize old Docker "ENV KEY VALUE" (no =) to "export KEY=VALUE"
+            "export " + (
+                f"{kv.split(None, 1)[0]}={kv.split(None, 1)[1]}"
+                if "=" not in kv and len(kv.split(None, 1)) == 2
+                else kv
+            )
             for m in ENV_RE.finditer(base_content + "\n" + instance_content)
+            for kv in [m.group(1)]
         ],
         apt_install=apt_install,
         base_runs=base_runs,
@@ -351,8 +376,6 @@ def generate_script(
     ).to_bash(skip_apt=skip_apt)
 
 
-# --- CLI ---
-
 def cmd_list_python(args) -> int:
     for iid in list_local_instances():
         try:
@@ -364,42 +387,40 @@ def cmd_list_python(args) -> int:
     return 0
 
 
-def cmd_convert_one(args) -> int:
-    iid = args.instance_id
-    base, instance = load_local(iid)
+def _convert_instance(iid: str, output: Path | None, args) -> bool:
+    """Generate a setup script for iid and write it.
+
+    Writes to ``output`` if given, stdout otherwise.
+    Returns False if iid is not a Python instance or its Dockerfiles are missing.
+    """
+    try:
+        base, instance = load_local(iid)
+    except FileNotFoundError:
+        return False
     if not is_python_dockerfile(base):
-        print(f"Warning: {iid} is not a Python instance.", file=sys.stderr)
-    script = generate_script(
-        iid, base, instance,
-        skip_apt=args.skip_apt,
-        no_date_pin=args.no_date_pin,
-    )
-    if args.output:
-        Path(args.output).write_text(script)
-        print(f"Wrote {args.output}", file=sys.stderr)
+        return False
+    script = generate_script(iid, base, instance, skip_apt=args.skip_apt, no_date_pin=args.no_date_pin)
+    if output is not None:
+        output.write_text(script)
     else:
         sys.stdout.write(script)
+    return True
+
+
+def cmd_convert_one(args) -> int:
+    iid = args.instance_id
+    output = Path(args.output) if args.output else None
+    if not _convert_instance(iid, output, args):
+        print(f"Warning: {iid} is not a Python instance (or Dockerfiles not found).", file=sys.stderr)
+    elif output:
+        print(f"Wrote {output}", file=sys.stderr)
     return 0
 
 
 def cmd_all_python(args) -> int:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    count = 0
-    for iid in list_local_instances():
-        try:
-            base, instance = load_local(iid)
-        except FileNotFoundError:
-            continue
-        if not is_python_dockerfile(base):
-            continue
-        script = generate_script(
-            iid, base, instance,
-            skip_apt=args.skip_apt,
-            no_date_pin=args.no_date_pin,
-        )
-        (out_dir / f"{iid}.sh").write_text(script)
-        count += 1
+    count = sum(_convert_instance(iid, out_dir / f"{iid}.sh", args) for iid in list_local_instances())
     print(f"Wrote {count} setup scripts to {out_dir}", file=sys.stderr)
     return 0
 
