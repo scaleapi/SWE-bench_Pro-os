@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""
+Scan scripts/*.sh, extract all apt-get install packages per project,
+and regenerate install_system_deps.sh at the repo root.
+"""
+
+import glob
+import re
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+OUTPUT = Path(__file__).parent.parent / "install_system_deps.sh"
+
+# Packages that are not real apt package names (false positives from grepping)
+BLOCKLIST = {
+    "rm", "update", "install", "pip", "uv", "wheel", "clone", "checkout",
+    "submodule", "add", "echo", "stable", "main",
+}
+BLOCKLIST_PREFIXES = ("http", "https", "deb", "[arch", ">", "|", "&", "/", "-")
+
+# Packages that require a special apt source — handled in a separate commented block
+NEEDS_SPECIAL_REPO = {"google-chrome-stable"}
+
+# Ubuntu 24.04 package renames/removals (old name → new name, or None to drop)
+UBUNTU_24_RENAMES: dict[str, str | None] = {
+    "libasound2": "libasound2t64",   # t64 ABI transition
+    "libegl1-mesa": None,            # absorbed into libegl1
+    "libgl1-mesa-glx": None,         # absorbed into libgl1
+}
+
+# Map filename prefix → project label
+PROJECT_LABELS = {
+    "ansible__ansible": "ansible",
+    "internetarchive__openlibrary": "openlibrary",
+    "qutebrowser__qutebrowser": "qutebrowser",
+}
+
+
+def extract_apt_packages(script_text: str) -> set[str]:
+    """Return all package names from apt-get install -y blocks in a script.
+
+    Parses line-by-line so backslash continuations are the only thing that
+    keeps a block going — avoids capturing git commands on the next line.
+    """
+    pkgs: set[str] = set()
+    lines = script_text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if "apt-get install -y" not in line:
+            i += 1
+            continue
+        # Collect the continuation block
+        block_tokens: list[str] = []
+        while i < len(lines):
+            raw = lines[i].rstrip()
+            # Strip inline comment backtick sequences used for grouping comments
+            raw = re.sub(r"`#[^`]*`", "", raw)
+            continues = raw.endswith("\\")
+            segment = raw.rstrip("\\")
+            # Only pull tokens from the part after `install -y` on the first line
+            if "apt-get install -y" in segment:
+                segment = segment.split("apt-get install -y", 1)[1]
+            block_tokens.extend(segment.split())
+            i += 1
+            if not continues:
+                break
+
+        for token in block_tokens:
+            token = token.strip().rstrip("\\").strip()
+            if not token:
+                continue
+            # '&&' means we've left the package list and entered a chained command
+            if token == "&&":
+                break
+            if token in BLOCKLIST:
+                continue
+            if any(token.startswith(p) for p in BLOCKLIST_PREFIXES):
+                continue
+            # Debian package names: lowercase letter/digit start, max 40 chars,
+            # only lowercase letters, digits, +, -, .
+            if re.fullmatch(r"[a-z][a-z0-9.+\-]{0,39}", token):
+                pkgs.add(token)
+    return pkgs
+
+
+def collect_by_project() -> dict[str, set[str]]:
+    by_project: dict[str, set[str]] = defaultdict(set)
+    for path in sorted(SCRIPTS_DIR.glob("instance_*.sh")):
+        name = path.stem  # e.g. instance_ansible__ansible-abc123-v...
+        project_key = next(
+            (k for k in PROJECT_LABELS if f"instance_{k}-" in name or name.startswith(f"instance_{k}-")),
+            None,
+        )
+        if project_key is None:
+            print(f"  [warn] unknown project: {path.name}", file=sys.stderr)
+            continue
+        text = path.read_text(errors="replace")
+        pkgs = extract_apt_packages(text)
+        by_project[project_key].update(pkgs)
+    return dict(by_project)
+
+
+def render(by_project: dict[str, set[str]]) -> str:
+    def apply_renames(pkgs: set[str]) -> set[str]:
+        result = set()
+        for p in pkgs:
+            mapped = UBUNTU_24_RENAMES.get(p, p)
+            if mapped is not None:
+                result.add(mapped)
+        return result
+
+    renamed = {k: apply_renames(v) for k, v in by_project.items()}
+    all_renamed = list(renamed.values())
+    core = set.intersection(*all_renamed) if all_renamed else set()
+    sections: list[tuple[str, set[str]]] = [("Core (all projects)", core)]
+    for key, label in PROJECT_LABELS.items():
+        if key in renamed:
+            exclusive = renamed[key] - core
+            sections.append((f"{label.capitalize()}-specific", exclusive))
+
+    # De-duplicate: each package appears in the first section that claims it
+    seen: set[str] = set()
+    deduped: list[tuple[str, list[str]]] = []
+    for title, pkgs in sections:
+        unique = sorted(p for p in pkgs if p not in seen and p not in NEEDS_SPECIAL_REPO)
+        seen.update(unique)
+        deduped.append((title, unique))
+
+    lines = [
+        "#!/usr/bin/env bash",
+        "# AUTO-GENERATED by helper_code/regen_system_deps.py — do not edit by hand.",
+        "# Run:  python3 helper_code/regen_system_deps.py",
+        "set -euo pipefail",
+        "",
+        "apt-get update -qq",
+        "",
+        "apt-get install -y \\",
+    ]
+
+    for section_title, pkgs in deduped:
+        if not pkgs:
+            continue
+        lines.append(f"    `# --- {section_title} ---` \\")
+        for pkg in pkgs:
+            lines.append(f"    {pkg} \\")
+        lines.append("    \\")
+
+    # Trim trailing bare backslash continuation
+    while lines and lines[-1].strip() == "\\":
+        lines.pop()
+    lines[-1] = lines[-1].rstrip(" \\")
+
+    lines += [
+        "",
+        "rm -rf /var/lib/apt/lists/*",
+        "",
+        "# Google Chrome (uncomment if google-chrome-stable is needed instead of chromium):",
+        "# wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add -",
+        '# echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \\',
+        "#     > /etc/apt/sources.list.d/google-chrome.list",
+        "# apt-get update -qq && apt-get install -y google-chrome-stable",
+        "# rm -rf /var/lib/apt/lists/*",
+    ]
+
+    return "\n".join(lines) + "\n"
+
+
+def main() -> None:
+    print(f"Scanning {SCRIPTS_DIR} ...")
+    by_project = collect_by_project()
+
+    total = sum(len(v) for v in by_project.values())
+    for key, pkgs in by_project.items():
+        print(f"  {PROJECT_LABELS.get(key, key)}: {len(pkgs)} packages")
+    print(f"  total unique: {total}")
+
+    content = render(by_project)
+    OUTPUT.write_text(content)
+    OUTPUT.chmod(0o755)
+    print(f"Written → {OUTPUT}")
+
+
+if __name__ == "__main__":
+    main()
