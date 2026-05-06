@@ -4,20 +4,14 @@ Scan scripts/*.sh, extract all apt-get install packages per project,
 and regenerate install_system_deps.sh at the repo root.
 """
 
-import re
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+from gen_setup import extract_apt_blocks_from_script, parse_apt_packages
+
 SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 OUTPUT = Path(__file__).parent.parent / "install_system_deps.sh"
-
-# Packages that are not real apt package names (false positives from grepping)
-BLOCKLIST = {
-    "rm", "update", "install", "pip", "uv", "wheel", "clone", "checkout",
-    "submodule", "add", "echo", "stable", "main",
-}
-BLOCKLIST_PREFIXES = ("http", "https", "deb", "[arch", ">", "|", "&", "/", "-")
 
 # Packages that require a special apt source — handled in a separate commented block
 NEEDS_SPECIAL_REPO = {"google-chrome-stable"}
@@ -29,61 +23,12 @@ UBUNTU_24_RENAMES: dict[str, str | None] = {
     "libgl1-mesa-glx": None,         # absorbed into libgl1
 }
 
-_APT_BACKTICK_COMMENT_RE = re.compile(r"`#[^`]*`")
-_DEB_PKG_RE = re.compile(r"[a-z][a-z0-9.+\-]{0,39}")
-
 # Map filename prefix → project label
 PROJECT_LABELS = {
     "ansible__ansible": "ansible",
     "internetarchive__openlibrary": "openlibrary",
     "qutebrowser__qutebrowser": "qutebrowser",
 }
-
-
-def extract_apt_packages(script_text: str) -> set[str]:
-    """Return all package names from apt-get install -y blocks in a script.
-
-    Parses line-by-line so backslash continuations are the only thing that
-    keeps a block going — avoids capturing git commands on the next line.
-    """
-    pkgs: set[str] = set()
-    lines = script_text.splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if "apt-get install -y" not in line:
-            i += 1
-            continue
-        # Collect the continuation block
-        block_tokens: list[str] = []
-        while i < len(lines):
-            raw = lines[i].rstrip()
-            # Strip inline comment backtick sequences used for grouping comments
-            raw = _APT_BACKTICK_COMMENT_RE.sub("", raw)
-            continues = raw.endswith("\\")
-            segment = raw.rstrip("\\")
-            # Only pull tokens from the part after `install -y` on the first line
-            if "apt-get install -y" in segment:
-                segment = segment.split("apt-get install -y", 1)[1]
-            block_tokens.extend(segment.split())
-            i += 1
-            if not continues:
-                break
-
-        for token in block_tokens:
-            token = token.strip().rstrip("\\").strip()
-            if not token:
-                continue
-            # '&&' means we've left the package list and entered a chained command
-            if token == "&&":
-                break
-            if token in BLOCKLIST:
-                continue
-            if any(token.startswith(p) for p in BLOCKLIST_PREFIXES):
-                continue
-            if _DEB_PKG_RE.fullmatch(token):
-                pkgs.add(token)
-    return pkgs
 
 
 def collect_by_project() -> dict[str, set[str]]:
@@ -98,7 +43,7 @@ def collect_by_project() -> dict[str, set[str]]:
             print(f"  [warn] unknown project: {path.name}", file=sys.stderr)
             continue
         text = path.read_text(errors="replace")
-        pkgs = extract_apt_packages(text)
+        pkgs = parse_apt_packages(extract_apt_blocks_from_script(text))
         by_project[project_key].update(pkgs)
     return dict(by_project)
 
