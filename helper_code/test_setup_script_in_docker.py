@@ -35,7 +35,7 @@ DEFAULT_INSTANCE = (
     "instance_ansible__ansible-0ea40e09d1b35bcb69ff4d9cecf3d0defa4b36e8-"
     "v30a923fb5c164d6cd18280c02422f75e611e8fb2"
 )
-DEFAULT_IMAGE = "python:3.11-slim"
+DEFAULT_IMAGE = "ubuntu:24.04"
 
 
 def extract_base_commit(setup_script: str) -> str:
@@ -52,7 +52,7 @@ def main() -> int:
                    help="Container image to run the setup script in.")
     p.add_argument("--skip-apt", action="store_true",
                    help="Pass through to the converter (use if the base image already has system tools).")
-    p.add_argument("--no-pypi-timemachine", action="store_true",
+    p.add_argument("--no-date-pin", action="store_true",
                    help="Pass through to the converter.")
     p.add_argument("--keep-workspace", action="store_true",
                    help="Don't delete the temporary workspace on exit (useful for debugging).")
@@ -70,7 +70,7 @@ def main() -> int:
     setup = generate_script(
         args.instance_id, base, instance,
         skip_apt=args.skip_apt,
-        no_pypi_timemachine=args.no_pypi_timemachine,
+        no_date_pin=args.no_date_pin,
     )
     expected_commit = extract_base_commit(setup)
     print(f"Instance:        {args.instance_id}")
