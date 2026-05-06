@@ -25,7 +25,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "helper_code"))
 
-from convert_to_setup_script import (  # noqa: E402
+from convert_dockerfile_setup_to_bash import (  # noqa: E402
     generate_script,
     is_python_dockerfile,
     load_local,

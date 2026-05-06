@@ -4,7 +4,6 @@ Scan scripts/*.sh, extract all apt-get install packages per project,
 and regenerate install_system_deps.sh at the repo root.
 """
 
-import glob
 import re
 import sys
 from collections import defaultdict
@@ -29,6 +28,9 @@ UBUNTU_24_RENAMES: dict[str, str | None] = {
     "libegl1-mesa": None,            # absorbed into libegl1
     "libgl1-mesa-glx": None,         # absorbed into libgl1
 }
+
+_APT_BACKTICK_COMMENT_RE = re.compile(r"`#[^`]*`")
+_DEB_PKG_RE = re.compile(r"[a-z][a-z0-9.+\-]{0,39}")
 
 # Map filename prefix → project label
 PROJECT_LABELS = {
@@ -57,7 +59,7 @@ def extract_apt_packages(script_text: str) -> set[str]:
         while i < len(lines):
             raw = lines[i].rstrip()
             # Strip inline comment backtick sequences used for grouping comments
-            raw = re.sub(r"`#[^`]*`", "", raw)
+            raw = _APT_BACKTICK_COMMENT_RE.sub("", raw)
             continues = raw.endswith("\\")
             segment = raw.rstrip("\\")
             # Only pull tokens from the part after `install -y` on the first line
@@ -79,9 +81,7 @@ def extract_apt_packages(script_text: str) -> set[str]:
                 continue
             if any(token.startswith(p) for p in BLOCKLIST_PREFIXES):
                 continue
-            # Debian package names: lowercase letter/digit start, max 40 chars,
-            # only lowercase letters, digits, +, -, .
-            if re.fullmatch(r"[a-z][a-z0-9.+\-]{0,39}", token):
+            if _DEB_PKG_RE.fullmatch(token):
                 pkgs.add(token)
     return pkgs
 
@@ -91,7 +91,7 @@ def collect_by_project() -> dict[str, set[str]]:
     for path in sorted(SCRIPTS_DIR.glob("instance_*.sh")):
         name = path.stem  # e.g. instance_ansible__ansible-abc123-v...
         project_key = next(
-            (k for k in PROJECT_LABELS if f"instance_{k}-" in name or name.startswith(f"instance_{k}-")),
+            (k for k in PROJECT_LABELS if name.startswith(f"instance_{k}-")),
             None,
         )
         if project_key is None:
