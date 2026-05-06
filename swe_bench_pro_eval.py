@@ -19,7 +19,7 @@ python sweap_pro_eval_modal.py \
 It expects:
 - Local run scripts in run_scripts/{instance_id}/run_script.sh
 - Local parser scripts in run_scripts/{instance_id}/parser.py
-- CSV file with columns: instance_id, before_repo_set_cmd, selected_test_files_to_run, 
+- CSV file with columns: instance_id, test_patch, selected_test_files_to_run,
   base_commit, base_dockerfile, instance_dockerfile, FAIL_TO_PASS, PASS_TO_PASS
 
 And the generated patch file (gold_patches.json) should have the following format:
@@ -39,6 +39,7 @@ import json
 import os
 import platform as py_platform
 import re
+import shlex
 
 try:
     import modal  # Lazy/optional: only required when not using --use_local_docker
@@ -93,12 +94,12 @@ def strip_binary_hunks(patch: str) -> str:
 
 
 def create_entryscript(sample):
-    before_repo_set_cmd = sample["before_repo_set_cmd"].strip().split("\n")[-1]
     selected_test_files_to_run = ",".join(eval(sample["selected_test_files_to_run"]))
     base_commit = sample["base_commit"]
+    test_patch = sample.get("test_patch", "") or ""
     base_dockerfile = load_base_docker(sample["instance_id"])
     instance_dockerfile = instance_docker(sample["instance_id"])
-    
+
     # Extract ENV commands from dockerfiles
     env_cmds = []
     for dockerfile_content in [base_dockerfile, instance_dockerfile]:
@@ -108,8 +109,36 @@ def create_entryscript(sample):
                 # Convert ENV commands to export statements
                 env_cmd = line.replace("ENV", "export", 1)
                 env_cmds.append(env_cmd)
-    
+
     env_cmds = "\n".join(env_cmds)
+
+    # Install the gold test files from the dataset's `test_patch` field.
+    # Reset tracked test files to base (so the apply is robust to agent edits),
+    # remove any untracked file the patch would create, then `git apply`
+    tracked = sorted({
+        p for p in re.findall(r"^--- a/(.*)$", test_patch, re.MULTILINE)
+        if p != "/dev/null"
+    })
+    created = sorted({
+        p for p in re.findall(r"^\+\+\+ b/(.*)$", test_patch, re.MULTILINE)
+        if p != "/dev/null"
+    })
+    reset_tracked_test_files = (
+        f"git checkout {base_commit} -- {' '.join(shlex.quote(p) for p in tracked)}"
+        if tracked else ":"
+    )
+    cleanup_created_test_files = (
+        f"for path in {' '.join(shlex.quote(p) for p in created)}; do "
+        'if [ -e "$path" ] && ! git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then '
+        'rm -rf -- "$path"; fi; done'
+        if created else ":"
+    )
+    apply_test_patch = (
+        f"echo {shlex.quote(test_patch)} > /tmp/test_patch.diff && "
+        "git apply --check /tmp/test_patch.diff && "
+        "git apply /tmp/test_patch.diff"
+        if test_patch.strip() else ":"
+    )
 
     entry_script = f"""
 {env_cmds}
@@ -118,7 +147,10 @@ cd /app
 git reset --hard {base_commit}
 git checkout {base_commit}
 git apply -v /workspace/patch.diff
-{before_repo_set_cmd}
+# install gold test files
+{reset_tracked_test_files}
+{cleanup_created_test_files}
+{apply_test_patch}
 # run test and save stdout and stderr to separate files
 bash /workspace/run_script.sh {selected_test_files_to_run} > /workspace/stdout.log 2> /workspace/stderr.log
 # run parsing script
