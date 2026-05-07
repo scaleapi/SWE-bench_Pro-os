@@ -38,7 +38,7 @@ swebench = load_dataset('ScaleAI/SWE-bench_Pro', split='test')
 ### 1. Install Python Dependencies
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 2. Install Docker
@@ -149,6 +149,53 @@ python swe_bench_pro_eval.py \
 ```
 
 You can test with the gold patches, which are in the HuggingFace dataset. There is a helper script in `helper_code` which can extract the gold patches into the required JSON format.
+
+## Decontainerized Setup Scripts (no Docker required)
+
+Instead of pulling prebuilt images, you can generate a self-contained bash script for any
+Python task and run it directly on a `ubuntu:24.04` host (or inside a lightweight container
+you control).
+
+### Quick start
+
+```bash
+# Convert a single instance to a bash setup script
+python dataset_preprocessing/gen_bash_script_setup.py \
+    --instance-id instance_ansible__ansible-<sha>-v<sha> \
+    --output setup.sh
+
+# Run it (requires: git, curl, nodejs/npm for some projects)
+bash setup.sh
+```
+
+The generated script: exports ENV vars → installs apt packages → clones the repo →
+resets to `base_commit` → creates a uv venv at `/opt/venv` → installs Python deps.
+
+### Bulk generation
+
+```bash
+# Requires: pip install datasets
+python dataset_preprocessing/gen_bash_script_setup.py --all-python --output-dir scripts/
+# → 235 scripts, one per Python instance with local Dockerfiles
+```
+
+### Skip sections when your environment already has them
+
+```bash
+# System deps pre-installed, repo already cloned and reset:
+python dataset_preprocessing/gen_bash_script_setup.py --instance-id <iid> --skip-apt --skip-repo-setup
+```
+
+### Regenerate `install_system_deps.sh` (the union of all apt packages)
+
+```bash
+python dataset_preprocessing/gen_bash_script_setup.py --all-python --output-dir scripts/
+python dataset_preprocessing/collect_all_system_deps.py
+```
+
+**Full documentation:** [`dataset_preprocessing/GEN_BASH_SCRIPT_SETUP.md`](dataset_preprocessing/GEN_BASH_SCRIPT_SETUP.md)
+
+---
 
 ## Reproducing Leaderboard Results
 
