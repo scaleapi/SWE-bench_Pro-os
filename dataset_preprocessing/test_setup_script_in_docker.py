@@ -10,8 +10,8 @@ re-run the failing/passing tests, only proves the setup completes and the
 working tree is at the expected commit.
 
 Usage:
-    python helper_code/test_setup_script_in_docker.py
-    python helper_code/test_setup_script_in_docker.py \\
+    python dataset_preprocessing/test_setup_script_in_docker.py
+    python dataset_preprocessing/test_setup_script_in_docker.py \\
         --instance-id <iid> --base-image python:3.11-slim
 """
 import argparse
@@ -22,14 +22,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "helper_code"))
-
-from convert_dockerfile_setup_to_bash import (  # noqa: E402
-    generate_script,
+from dataset_preprocessing.dockerfile_to_bash import (
+    build_sections,
     is_python_dockerfile,
-    load_local,
+    load_local_dockerfiles as load_local,
 )
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_INSTANCE = (
     "instance_ansible__ansible-0ea40e09d1b35bcb69ff4d9cecf3d0defa4b36e8-"
@@ -67,11 +66,10 @@ def main() -> int:
         print(f"ERROR: {args.instance_id} is not a Python instance", file=sys.stderr)
         return 2
 
-    setup = generate_script(
+    setup = build_sections(
         args.instance_id, base, instance,
-        skip_apt=args.skip_apt,
         no_date_pin=args.no_date_pin,
-    )
+    ).to_bash(skip_apt=args.skip_apt)
     expected_commit = extract_base_commit(setup)
     print(f"Instance:        {args.instance_id}")
     print(f"Base image:      {args.base_image}")

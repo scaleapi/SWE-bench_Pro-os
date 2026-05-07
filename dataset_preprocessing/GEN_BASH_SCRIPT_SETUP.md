@@ -1,11 +1,11 @@
-# `gen_setup.py`
+# `gen_bash_script_setup.py`
 
-Leaner alternative to [`convert_dockerfile_setup_to_bash.py`](CONVERT_DOCKERFILE_SETUP_TO_BASH.md).
-Produces the same kind of bash setup script for a SWE-bench Pro Python task, with several
-improvements:
+Generates a self-contained bash setup script for a SWE-bench Pro Python task.
+
+Key features:
 
 - **All apt blocks preserved.** Some Dockerfiles have two separate `RUN apt-get install`
-  blocks; the old converter kept only the last one. `gen_setup.py` concatenates them all.
+  blocks; `gen_bash_script_setup.py` concatenates them all.
 - **Venv at `/opt/venv`.** The venv is placed outside `/app`, so `git clean -fdx` (run
   during PREPROCESS) cannot accidentally delete it.
 - **`--skip-repo-setup` flag.** Lets you skip the REPO + PREPROCESS sections when your
@@ -27,19 +27,19 @@ syntax normalization, and `--default-timeout` stripping.
 
 ```bash
 # Convert a single instance (prints to stdout)
-python helper_code/gen_setup.py --instance-id <iid>
+python dataset_preprocessing/gen_bash_script_setup.py --instance-id <iid>
 
 # Write to a file
-python helper_code/gen_setup.py --instance-id <iid> --output setup.sh
+python dataset_preprocessing/gen_bash_script_setup.py --instance-id <iid> --output setup.sh
 
 # Skip apt (base image already has system deps) and repo setup (caller pre-cloned)
-python helper_code/gen_setup.py --instance-id <iid> --skip-apt --skip-repo-setup
+python dataset_preprocessing/gen_bash_script_setup.py --instance-id <iid> --skip-apt --skip-repo-setup
 
 # Bulk-generate all 235 Python instances
-python helper_code/gen_setup.py --all-python --output-dir scripts/
+python dataset_preprocessing/gen_bash_script_setup.py --all-python --output-dir scripts/
 
 # List all Python instance ids (from the HF dataset)
-python helper_code/gen_setup.py --list-python
+python dataset_preprocessing/gen_bash_script_setup.py --list-python
 ```
 
 All flags:
@@ -85,7 +85,7 @@ When `--skip-repo-setup` is set, the generated script assumes `/app` already exi
 ## Example 1 — Convert a single instance
 
 ```bash
-python helper_code/gen_setup.py \
+python dataset_preprocessing/gen_bash_script_setup.py \
     --instance-id instance_ansible__ansible-bec27fb4c0a40c5f8bbcf26a475704227d65ee73-v30a923fb5c164d6cd18280c02422f75e611e8fb2 \
     --output ./setup.sh
 chmod +x ./setup.sh
@@ -97,14 +97,14 @@ docker run --rm -v $(pwd)/setup.sh:/setup.sh ubuntu:24.04 bash /setup.sh
 ## Example 2 — Bulk-generate for all Python instances
 
 ```bash
-python helper_code/gen_setup.py --all-python --output-dir scripts/
+python dataset_preprocessing/gen_bash_script_setup.py --all-python --output-dir scripts/
 # → writes 235 scripts (one per Python instance that has local Dockerfiles)
 ```
 
 For environments where system deps are pre-installed:
 
 ```bash
-python helper_code/gen_setup.py --all-python --output-dir scripts/ --skip-apt
+python dataset_preprocessing/gen_bash_script_setup.py --all-python --output-dir scripts/ --skip-apt
 ```
 
 ---
@@ -115,8 +115,7 @@ python helper_code/gen_setup.py --all-python --output-dir scripts/ --skip-apt
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "helper_code"))
-from gen_setup import build_sections, load_local_dockerfiles
+from dataset_preprocessing.gen_bash_script_setup import build_sections, load_local_dockerfiles
 
 iid = "instance_ansible__ansible-bec27fb4c0a40c5f8bbcf26a475704227d65ee73-v30a923fb5c164d6cd18280c02422f75e611e8fb2"
 base, inst = load_local_dockerfiles(iid)
@@ -149,32 +148,15 @@ print("Base steps     :", len(sections.base_runs))
 
 ---
 
-## Relationship to `convert_dockerfile_setup_to_bash.py`
-
-Both scripts produce equivalent bash output for the common case. Key differences:
-
-| | `convert_dockerfile_setup_to_bash.py` | `gen_setup.py` |
-|---|---|---|
-| Multiple apt blocks | Keeps only the last | Concatenates all |
-| Venv location | `/app/.venv` | `/opt/venv` |
-| `--skip-repo-setup` | No | Yes |
-| `apt_packages` field | No | Yes |
-| Batch filter | `FROM python:*` heuristic | `repo_language == "python"` from HF dataset |
-| `datasets` dependency | No | Only for batch modes |
-
-Both files are kept for now. Use `gen_setup.py` for new work.
-
----
-
 ## Relationship to `collect_all_system_deps.py`
 
 [`collect_all_system_deps.py`](collect_all_system_deps.py) scans `scripts/*.sh` to regenerate
 `install_system_deps.sh`. It imports `parse_apt_packages` and `extract_apt_blocks_from_script`
-directly from `gen_setup.py`, so both scripts share a single apt parser.
+directly from `gen_bash_script_setup.py`, so both scripts share a single apt parser.
 
 To regenerate `install_system_deps.sh` after updating the scripts:
 
 ```bash
-python helper_code/gen_setup.py --all-python --output-dir scripts/
-python helper_code/collect_all_system_deps.py
+python dataset_preprocessing/gen_bash_script_setup.py --all-python --output-dir scripts/
+python dataset_preprocessing/collect_all_system_deps.py
 ```
