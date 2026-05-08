@@ -34,12 +34,12 @@ And the generated patch file (gold_patches.json) should have the following forma
 """
 
 import argparse
+import base64
 import concurrent.futures
 import json
 import os
 import platform as py_platform
 import re
-import shlex
 
 try:
     import modal  # Lazy/optional: only required when not using --use_local_docker
@@ -52,6 +52,11 @@ except Exception:
 import pandas as pd
 from tqdm import tqdm
 
+from helper_code.gold_test_fetcher import (
+    fetch_gold_blob,
+    parse_gold_checkout,
+    repo_from_instance_id,
+)
 from helper_code.image_uri import get_dockerhub_image_uri
 
 # Credit: prabhuteja12
@@ -93,10 +98,34 @@ def strip_binary_hunks(patch: str) -> str:
     return "".join(kept)
 
 
+def _build_gold_install_block(sample) -> str:
+    """Generate a self-contained heredoc'd python block that installs gold-state
+    test files onto the working tree. Blobs are base64'd into the script so the
+    install survives a stripped-history image and is byte-faithful for CRLF /
+    binary fixtures, unlike `git apply`.
+    """
+    sha, gold_files = parse_gold_checkout(sample.get("before_repo_set_cmd") or "")
+    repo = sample.get("repo") or repo_from_instance_id(sample.get("instance_id", ""))
+    if not (sha and repo and gold_files):
+        return ":"
+
+    blobs = {rel: base64.b64encode(fetch_gold_blob(repo, sha, rel)).decode("ascii")
+             for rel in gold_files}
+
+    # `repr()` makes the dict a safely-quoted Python literal, no bash quoting concerns inside the heredoc.
+    return f"""python3 - <<'PY'
+import base64
+from pathlib import Path
+APP = Path("/app")
+for rel, b64 in {blobs!r}.items():
+    dst = APP / rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(base64.b64decode(b64))
+PY"""
+
 def create_entryscript(sample):
     selected_test_files_to_run = ",".join(eval(sample["selected_test_files_to_run"]))
     base_commit = sample["base_commit"]
-    test_patch = sample.get("test_patch", "") or ""
     base_dockerfile = load_base_docker(sample["instance_id"])
     instance_dockerfile = instance_docker(sample["instance_id"])
 
@@ -112,33 +141,10 @@ def create_entryscript(sample):
 
     env_cmds = "\n".join(env_cmds)
 
-    # Install the gold test files from the dataset's `test_patch` field.
-    # Reset tracked test files to base (so the apply is robust to agent edits),
-    # remove any untracked file the patch would create, then `git apply`
-    tracked = sorted({
-        p for p in re.findall(r"^--- a/(.*)$", test_patch, re.MULTILINE)
-        if p != "/dev/null"
-    })
-    created = sorted({
-        p for p in re.findall(r"^\+\+\+ b/(.*)$", test_patch, re.MULTILINE)
-        if p != "/dev/null"
-    })
-    reset_tracked_test_files = (
-        f"git checkout {base_commit} -- {' '.join(shlex.quote(p) for p in tracked)}"
-        if tracked else ":"
-    )
-    cleanup_created_test_files = (
-        f"for path in {' '.join(shlex.quote(p) for p in created)}; do "
-        'if [ -e "$path" ] && ! git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then '
-        'rm -rf -- "$path"; fi; done'
-        if created else ":"
-    )
-    apply_test_patch = (
-        f"echo {shlex.quote(test_patch)} > /tmp/test_patch.diff && "
-        "git apply --check /tmp/test_patch.diff && "
-        "git apply /tmp/test_patch.diff"
-        if test_patch.strip() else ":"
-    )
+    # Install gold-state test files byte-for-byte from upstream (covers
+    # CRLF/binary fixtures and shared helpers in `before_repo_set_cmd`'s file
+    # list that aren't in `test_patch`).
+    install_gold_tests = _build_gold_install_block(sample)
 
     entry_script = f"""
 {env_cmds}
@@ -148,9 +154,7 @@ git reset --hard {base_commit}
 git checkout {base_commit}
 git apply -v /workspace/patch.diff
 # install gold test files
-{reset_tracked_test_files}
-{cleanup_created_test_files}
-{apply_test_patch}
+{install_gold_tests}
 # run test and save stdout and stderr to separate files
 bash /workspace/run_script.sh {selected_test_files_to_run} > /workspace/stdout.log 2> /workspace/stderr.log
 # run parsing script
