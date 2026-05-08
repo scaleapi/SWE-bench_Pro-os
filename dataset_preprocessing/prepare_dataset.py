@@ -4,6 +4,9 @@
 For each Python task, adds a ``setup_script`` field containing the ENV, UV VENV,
 and PYTHON SETUP bash sections derived from the instance's Dockerfiles.
 
+Also adds an ``eval_scripts`` field: a list with one self-contained bash script
+that writes run_script.sh and parser.py inline, then runs the evaluation tests.
+
 Usage:
     python dataset_preprocessing/prepare_dataset.py --output artifacts/python_dataset.jsonl
     python dataset_preprocessing/prepare_dataset.py --output artifacts/python_dataset.jsonl --no-date-pin
@@ -20,6 +23,34 @@ from dataset_preprocessing.dockerfile_to_bash import (
     is_python_dockerfile,
     load_local_dockerfiles,
 )
+
+_REPO_ROOT = Path(__file__).parent.parent
+
+
+def build_eval_script(iid: str, row: dict) -> str:
+    run_script_path = _REPO_ROOT / "run_scripts" / iid / "run_script.sh"
+    parser_path = _REPO_ROOT / "run_scripts" / iid / "parser.py"
+
+    run_script_content = run_script_path.read_text()
+    parser_content = parser_path.read_text()
+
+    test_files_csv = ",".join(json.loads(row["selected_test_files_to_run"]))
+
+    return f"""\
+#!/bin/bash
+# set -e
+
+cat > /workspace/run_script.sh << 'EOFRUNSCRIPT'
+{run_script_content}
+EOFRUNSCRIPT
+
+cat > /workspace/parser.py << 'EOFPARSER'
+{parser_content}
+EOFPARSER
+
+bash /workspace/run_script.sh "{test_files_csv}" > /workspace/stdout.log 2> /workspace/stderr.log
+python /workspace/parser.py /workspace/stdout.log /workspace/stderr.log /workspace/output.json
+"""
 
 
 def main() -> int:
@@ -46,9 +77,16 @@ def main() -> int:
             if not is_python_dockerfile(base):
                 skipped += 1
                 continue
+            try:
+                eval_script = build_eval_script(iid, row)
+            except FileNotFoundError:
+                print(f"[skip] {iid}: run_scripts not found", file=sys.stderr)
+                skipped += 1
+                continue
             sections = build_sections(iid, base, inst, no_date_pin=args.no_date_pin)
             record = dict(row)
             record["setup_script"] = sections.to_bash(skip_apt=True, skip_repo_setup=True)
+            record["eval_scripts"] = [eval_script]
             f.write(json.dumps(record) + "\n")
             written += 1
 
