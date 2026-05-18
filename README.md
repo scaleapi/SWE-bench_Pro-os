@@ -11,6 +11,8 @@ Code and data for the following works:
 
 ## News
 
+(05/18) We have identified some issues with the leaderboard and are currently working on addressing them. 
+
 (2/9) We have removed some unit tests which were outdated (e.g. required the year 2025) or were previously not intended to be included. 
 
 (1/7) We have fixed an issue with tutao instances where they take a long time to eval. The relevant run scripts are updated.
