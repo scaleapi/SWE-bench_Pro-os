@@ -70,9 +70,16 @@ def validate_run_scripts(
     gates: list[dict[str, Any]] = []
     errors: list[str] = []
     missing_scripts: list[str] = []
+    missing_parsers: list[str] = []
+    valid_count = 0
 
     for entry in patches:
-        iid = entry["instance_id"]
+        if not isinstance(entry, dict):
+            continue
+        iid = entry.get("instance_id")
+        if not iid:
+            continue
+        valid_count += 1
         inst_dir = scripts_dir / iid
         run_script = inst_dir / "run_script.sh"
         parser = inst_dir / "parser.py"
@@ -80,16 +87,21 @@ def validate_run_scripts(
             missing_scripts.append(iid)
             errors.append(f"{iid}: missing {run_script}")
         if not parser.is_file():
+            missing_parsers.append(iid)
             errors.append(f"{iid}: missing {parser}")
 
+    layout_ok = not missing_scripts and not missing_parsers
     gates.append(
         {
             "name": "run_scripts_layout",
-            "passed": not missing_scripts,
+            "passed": layout_ok,
             "detail": (
-                f"all {len(patches)} instance run_scripts present"
-                if not missing_scripts
-                else f"missing run_script for {len(missing_scripts)} instance(s)"
+                f"all {valid_count} instance run_scripts and parsers present"
+                if layout_ok
+                else (
+                    f"missing run_script for {len(missing_scripts)} instance(s), "
+                    f"missing parser for {len(missing_parsers)} instance(s)"
+                )
             ),
         }
     )
@@ -99,7 +111,11 @@ def validate_run_scripts(
 def collect_known_warnings(patches: list[dict[str, Any]]) -> list[dict[str, Any]]:
     warnings: list[dict[str, Any]] = []
     for entry in patches:
-        iid = entry["instance_id"]
+        if not isinstance(entry, dict):
+            continue
+        iid = entry.get("instance_id")
+        if not iid:
+            continue
         for needle, message in KNOWN_WARNINGS.items():
             if needle in iid:
                 warnings.append({"instance_id": iid, "warning": message})

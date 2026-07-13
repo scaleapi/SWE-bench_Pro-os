@@ -66,6 +66,30 @@ class TestSwebenchPreflight(unittest.TestCase):
         report = run_preflight(patches, scripts)
         self.assertFalse(report["passed"])
 
+    def test_fails_missing_parser(self):
+        tmp, patches, scripts = self._layout()
+        (scripts / "instance_demo__repo-abc" / "parser.py").unlink()
+        report = run_preflight(patches, scripts)
+        self.assertFalse(report["passed"])
+
+    def test_malformed_patch_does_not_crash(self):
+        tmp, patches, scripts = self._layout()
+        patches.write_text(
+            json.dumps(
+                [
+                    {"patch": "diff\n", "prefix": "gold"},
+                    {
+                        "instance_id": "instance_demo__repo-abc",
+                        "patch": "diff --git a/foo b/foo\n",
+                        "prefix": "gold",
+                    },
+                ]
+            )
+        )
+        report = run_preflight(patches, scripts)
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("missing keys" in err for err in report["errors"]))
+
     def test_warns_nodebb_sendmail(self):
         tmp, patches, scripts = self._layout()
         inst = scripts / "instance_NodeBB__NodeBB-deadbeef"
