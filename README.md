@@ -136,6 +136,18 @@ This will create a JSON file in the format expected by the evaluation script:
 ]
 ```
 
+### 2b. Preflight (recommended)
+
+Before evaluation, validate patch JSON and `run_scripts/` layout:
+
+```bash
+python scripts/swebench_preflight.py \
+  --patches sample1_patches.json \
+  --scripts-dir run_scripts
+```
+
+See [docs/HARNESS.md](docs/HARNESS.md) and [docs/GOLDEN_PATCH.md](docs/GOLDEN_PATCH.md) for harness invariants and golden-patch verification ([#101](https://github.com/scaleapi/SWE-bench_Pro-os/issues/101)).
+
 ### 3. Evaluate Patches
 
 Evaluate patch predictions on SWE-Bench Pro:
