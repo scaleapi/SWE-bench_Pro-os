@@ -125,6 +125,8 @@ def collect_known_warnings(patches: list[dict[str, Any]]) -> list[dict[str, Any]
 def check_binary_patch_sections(patches: list[dict[str, Any]]) -> dict[str, Any]:
     binary_hits = 0
     for entry in patches:
+        if not isinstance(entry, dict):
+            continue
         patch = entry.get("patch", "")
         if re.search(r"^Binary files .* differ$", patch, re.MULTILINE):
             binary_hits += 1

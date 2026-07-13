@@ -90,6 +90,24 @@ class TestSwebenchPreflight(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertTrue(any("missing keys" in err for err in report["errors"]))
 
+    def test_non_dict_patch_entry_does_not_crash(self):
+        tmp, patches, scripts = self._layout()
+        patches.write_text(
+            json.dumps(
+                [
+                    42,
+                    {
+                        "instance_id": "instance_demo__repo-abc",
+                        "patch": "diff --git a/foo b/foo\n",
+                        "prefix": "gold",
+                    },
+                ]
+            )
+        )
+        report = run_preflight(patches, scripts)
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("expected object" in err for err in report["errors"]))
+
     def test_warns_nodebb_sendmail(self):
         tmp, patches, scripts = self._layout()
         inst = scripts / "instance_NodeBB__NodeBB-deadbeef"
