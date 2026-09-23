@@ -53,6 +53,110 @@ from tqdm import tqdm
 
 from helper_code.image_uri import get_dockerhub_image_uri
 
+# Docker names some architectures differently from platform.machine().
+_ARCH_ALIASES = {
+    "x86_64": "amd64",
+    "amd64": "amd64",
+    "aarch64": "arm64",
+    "arm64": "arm64",
+}
+
+
+class InfrastructureError(RuntimeError):
+    """The environment failed, so the patch was never scored.
+
+    Distinct from a patch that ran and failed its tests: counting one as the other
+    reports a broken environment as a wrong answer.
+    """
+
+
+def engine_version(client):
+    """The server half of `docker version`, or {} if the engine cannot be asked.
+
+    Not necessarily this machine: DOCKER_HOST or a docker context can point at another
+    host entirely.
+    """
+    if client is None:
+        return {}
+    try:
+        return client.version()
+    except Exception:
+        return {}
+
+
+def engine_runs_in_vm(client, version):
+    """Best effort: whether the engine runs containers in a VM instead of on this kernel.
+
+    Only reached on a Linux client, where it catches this script running inside a
+    container on a Mac. Docker Desktop names itself in the server's Platform.Name, and in
+    info()["OperatingSystem"]; an engine that does neither falls through to the honest
+    error rather than emulating silently.
+    """
+    if "docker desktop" in str((version.get("Platform") or {}).get("Name", "")).lower():
+        return True
+    if client is None:
+        return False
+    try:
+        return "docker desktop" in str(client.info().get("OperatingSystem", "")).lower()
+    except Exception:
+        return False
+
+
+def default_docker_platform(client=None):
+    """The platform to use when --docker_platform was not given.
+
+    `docker version` reports a client and a server separately, and on a Mac they differ:
+    the client is darwin/arm64 and the server linux/arm64, because the engine runs in a
+    VM. This process is the client, so platform.system() is that client line -- Darwin
+    there, however Linux the container it starts turns out to be. That is the case the
+    existing default was written for: no arm64 sweap-image exists to run in that VM, so
+    emulation is the only way to run at all and stays the default.
+
+    A Linux client with a Linux engine shares its kernel, so run the architecture that
+    engine reports. Emulating a foreign one instead is slow enough to hit the
+    per-instance timeout, and those timeouts are recorded as ordinary test failures.
+
+    An engine that does not report its architecture gets None, not this machine's ISA:
+    DOCKER_HOST or a docker context can point at a host with a different one, and leaving
+    the platform unset lets that engine choose for itself.
+    """
+    version = engine_version(client)
+    if py_platform.system() != "Linux" or engine_runs_in_vm(client, version):
+        return "linux/amd64"
+    arch = _ARCH_ALIASES.get(str(version.get("Arch", "")).lower())
+    return f"linux/{arch}" if arch else None
+
+
+def platform_arch(docker_platform):
+    """The architecture component of a `linux/amd64`-style platform string."""
+    if not docker_platform:
+        return None
+    parts = docker_platform.split("/")
+    return _ARCH_ALIASES.get(parts[1].lower()) if len(parts) > 1 else None
+
+
+def progress_description(eval_results, infra_errors):
+    """Running accuracy over the instances that actually ran, plus the excluded count."""
+    if eval_results:
+        desc = f"Accuracy: {sum(eval_results.values()) / len(eval_results):.2%}"
+    else:
+        desc = "Accuracy: n/a"
+    return f"{desc} ({len(infra_errors)} infra err)" if infra_errors else desc
+
+
+def container_diagnostics(container, tail=50):
+    """The container's own stdio.
+
+    The only other diagnostics are /workspace/*.log, which do not exist if the
+    entryscript never started -- exactly the case a wrong-architecture image produces.
+    """
+    try:
+        logs = container.logs(tail=tail).decode("utf-8", errors="replace")
+    except Exception as e:
+        return f"  (could not read container logs: {e!r})"
+    return "".join(f"  [container] {line}\n" for line in logs.splitlines()) or "  (no container output)"
+
+
 # Credit: prabhuteja12
 def load_base_docker(iid):
     with open(f"dockerfiles/base_dockerfile/{iid}/Dockerfile") as fp:
@@ -369,8 +473,7 @@ def eval_with_docker(patch, sample, output_dir, dockerhub_username, scripts_dir,
         try:
             files, entryscript_content = assemble_workspace_files(uid, scripts_dir, patch, sample)
         except FileNotFoundError as e:
-            print(f"Error loading scripts for {uid}: {e}")
-            return None
+            raise InfrastructureError(f"Error loading scripts for {uid}: {e}")
         write_files_local(workspace_dir, files)
         write_patch_snapshot(output_dir, uid, prefix, patch)
 
@@ -390,15 +493,37 @@ def eval_with_docker(patch, sample, output_dir, dockerhub_username, scripts_dir,
                 client.images.get(dockerhub_image_uri)
                 print(f"Using locally available image: {dockerhub_image_uri}")
             except Exception:
-                print(f"Failed to pull or find image locally for {uid}: {pull_err}")
-                return None
+                raise InfrastructureError(
+                    f"Failed to pull or find image locally for {uid}: {pull_err}"
+                )
+
+        # Checked after a successful pull too, not just after the fallback: these tags are
+        # single-platform manifests with no platform list for Docker to reject, so a pull
+        # asking for arm64 succeeds and returns the amd64 image. Unchecked, the mismatch
+        # surfaces inside the entryscript, where it looks like a failing patch.
+        #
+        # Only when a platform was asked for. Without one the engine served whatever it
+        # runs natively, so there is nothing to disagree with -- and comparing against
+        # this machine's ISA would reject a native image on a remote engine.
+        wanted_arch = platform_arch(docker_platform)
+        image_arch = _ARCH_ALIASES.get(
+            str(client.images.get(dockerhub_image_uri).attrs.get("Architecture", "")).lower()
+        )
+        if wanted_arch and image_arch and image_arch != wanted_arch:
+            raise InfrastructureError(
+                f"Image for {uid} is {image_arch}, not {wanted_arch} "
+                f"({dockerhub_image_uri}). The published sweap-images are amd64-only; "
+                f"pass --docker_platform linux/amd64 to emulate it instead."
+            )
 
         abs_workspace_dir = os.path.abspath(workspace_dir)
         volumes = {abs_workspace_dir: {"bind": "/workspace", "mode": "rw"}}
         run_kwargs = {
             "volumes": volumes,
             "detach": True,
-            "remove": True,
+            # Removed explicitly below instead, so that a container which failed before it
+            # could write /workspace/*.log is still around to read logs from.
+            "remove": False,
             "entrypoint": "/bin/bash",  # Override image entrypoint
             "command": ["-c", "bash /workspace/entryscript.sh"],
         }
@@ -408,15 +533,32 @@ def eval_with_docker(patch, sample, output_dir, dockerhub_username, scripts_dir,
         if docker_platform:
             run_kwargs["platform"] = docker_platform
 
-        container = client.containers.run(
-            dockerhub_image_uri,
-            **run_kwargs,
-        )
+        try:
+            container = client.containers.run(
+                dockerhub_image_uri,
+                **run_kwargs,
+            )
+        except docker.errors.DockerException as run_err:
+            # A container that was never created ran no tests, so this cannot be a wrong
+            # answer. Docker reports a platform with no matching image here as a bare 404
+            # on /containers/create, which the outer handler would otherwise turn into
+            # `return None` and main() into a scored failure.
+            raise InfrastructureError(
+                f"Could not start container for {uid} from {dockerhub_image_uri}: {run_err!r}"
+            )
 
-        result = container.wait()
-        status_code = result.get("StatusCode", 1) if isinstance(result, dict) else 1
-        if status_code != 0:
-            print(f"Entryscript failed for {uid} with return code: {status_code}")
+        try:
+            result = container.wait()
+            status_code = result.get("StatusCode", 1) if isinstance(result, dict) else 1
+            if status_code != 0:
+                print(f"Entryscript failed for {uid} with return code: {status_code}")
+                print(container_diagnostics(container))
+        finally:
+            try:
+                container.remove(force=True)
+            except Exception as rm_err:
+                print(f"Warning: could not remove container for {uid}: {rm_err!r}")
+
         # Collect outputs and logs, and save entryscript for reference
         output = collect_outputs_local(workspace_dir, output_dir, uid, prefix)
         if output is None:
@@ -424,6 +566,8 @@ def eval_with_docker(patch, sample, output_dir, dockerhub_username, scripts_dir,
         save_entryscript_copy(output_dir, uid, prefix, entryscript_content)
 
         return output
+    except InfrastructureError:
+        raise
     except Exception as e:
         print(f"Error in eval_with_docker for {uid}: {repr(e)}")
         print(f"Error type: {type(e)}")
@@ -449,7 +593,11 @@ def parse_args():
     parser.add_argument(
         "--docker_platform",
         default=None,
-        help="Docker platform override, e.g., linux/amd64; defaults to auto-detect",
+        help=(
+            "Docker platform for --use_local_docker, e.g. linux/amd64. Defaults to this "
+            "machine's own architecture on Linux, and to linux/amd64 where Docker runs "
+            "containers in a VM (macOS). Naming a foreign architecture opts in to emulation."
+        ),
     )
     parser.add_argument(
         "--redo", action="store_true", help="Redo evaluations even if output exists"
@@ -463,7 +611,13 @@ def parse_args():
     parser.add_argument(
         "--block_network", action="store_true", help="Block network access inside container"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.docker_platform and not args.use_local_docker:
+        parser.error(
+            "--docker_platform applies only to --use_local_docker; the Modal path builds "
+            "its own image and ignores it."
+        )
+    return args
 
 
 def main():
@@ -485,6 +639,8 @@ def main():
     with open(args.patch_path, "r") as f:
         patches_to_run = json.load(f)
     eval_results = {}
+    # Instances that never ran, kept apart from instances that ran and failed.
+    infra_errors = {}
 
     # Filter patches to only include those with matching instance_ids in the raw sample data
     valid_patches = []
@@ -505,14 +661,28 @@ def main():
         print(f"Proceeding with {len(valid_patches)} valid patches out of {len(patches_to_run)} total patches")
 
     # Select runtime
-    # Auto-detect default platform if not provided: prefer linux/amd64 on Apple Silicon
-    detected_platform = None
-    if args.use_local_docker and args.docker_platform is None:
+    # A Linux engine runs its own architecture; a VM-backed one (macOS) keeps preferring
+    # linux/amd64, since there is nothing else it could run (see default_docker_platform).
+    docker_platform = args.docker_platform
+    if args.use_local_docker and docker_platform is None:
         try:
-            if py_platform.machine().lower() in {"arm64", "aarch64"}:
-                detected_platform = "linux/amd64"
+            probe_client = docker.from_env() if docker is not None else None
         except Exception:
-            detected_platform = None
+            probe_client = None
+        docker_platform = default_docker_platform(probe_client)
+        if docker_platform is None:
+            print(
+                "Warning: the Docker engine did not report an architecture this script "
+                "recognises; letting it choose the platform. Pass --docker_platform to "
+                "pin one."
+            )
+        elif platform_arch(docker_platform) != "amd64":
+            print(
+                f"Running natively on {docker_platform}. The published sweap-images are "
+                f"amd64-only today, so instances with no {platform_arch(docker_platform)} "
+                f"image will report an infrastructure error instead of being scored. "
+                f"Pass --docker_platform linux/amd64 to emulate amd64 instead."
+            )
 
     eval_fn = eval_with_docker if args.use_local_docker else eval_with_modal
 
@@ -530,7 +700,7 @@ def main():
                 prefix=patch_sample.get("prefix", ""),
                 redo=args.redo,
                 block_network=args.block_network,
-                docker_platform=(args.docker_platform or detected_platform) if args.use_local_docker else None,
+                docker_platform=docker_platform,
             ): patch_sample
             for patch_sample in valid_patches
         }
@@ -558,17 +728,38 @@ def main():
                         result = (f2p | p2p) <= passed_tests
                         eval_results[instance_id] = result
 
-                current_accuracy = sum(eval_results.values()) / len(eval_results)
-                pbar.set_description(f"Accuracy: {current_accuracy:.2%}")
+            except InfrastructureError as exc:
+                # Never scored, so not an unresolved instance either.
+                print(f'Evaluation for {patch_sample["instance_id"]} could not run: {exc}')
+                infra_errors[patch_sample["instance_id"]] = str(exc)
             except Exception as exc:
                 print(f'Evaluation for {patch_sample["instance_id"]} generated an exception: {exc}')
                 eval_results[patch_sample["instance_id"]] = False
-                # Update progress bar description with current accuracy
-                current_accuracy = sum(eval_results.values()) / len(eval_results)
-                pbar.set_description(f"Accuracy: {current_accuracy:.2%}")
+            pbar.set_description(progress_description(eval_results, infra_errors))
+
     with open(os.path.join(args.output_dir, "eval_results.json"), "w") as f:
         json.dump(eval_results, f)
-    print("Overall accuracy: ", sum(eval_results.values()) / len(eval_results))
+    # Reported separately and left out of the accuracy denominator: these instances never
+    # ran, so scoring them as failures would understate the result by exactly the number of
+    # broken environments -- which is how an architecture mismatch turns into a
+    # plausible-looking number. Written even when empty, like eval_results.json above: a
+    # later --redo in the same output_dir would otherwise leave the previous run's list
+    # behind to describe this one.
+    with open(os.path.join(args.output_dir, "infra_errors.json"), "w") as f:
+        json.dump(infra_errors, f, indent=2)
+    if infra_errors:
+        print(
+            f"{len(infra_errors)} instance(s) could not be evaluated and are excluded from "
+            f"the accuracy below; see infra_errors.json"
+        )
+    if eval_results:
+        print(
+            "Overall accuracy: ",
+            sum(eval_results.values()) / len(eval_results),
+            f"({len(eval_results)} of {len(valid_patches)} instances scored)",
+        )
+    else:
+        print(f"No instances were scored out of {len(valid_patches)}.")
 
 
 if __name__ == "__main__":
