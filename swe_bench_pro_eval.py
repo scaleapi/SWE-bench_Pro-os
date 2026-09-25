@@ -166,11 +166,11 @@ def prepare_run(uid, output_dir, prefix, redo):
     uid_dir = os.path.join(output_dir, uid)
     os.makedirs(uid_dir, exist_ok=True)
     output_path = os.path.join(uid_dir, f"{prefix}_output.json")
+    workspace_dir = os.path.join(uid_dir, f"{prefix}_workspace" if prefix else "workspace")
     if not redo and os.path.exists(output_path):
         print(f"Skipping {uid} - output already exists")
         with open(output_path, "r") as f:
-            return json.load(f), output_path, os.path.join(uid_dir, "workspace")
-    workspace_dir = os.path.join(uid_dir, "workspace")
+            return json.load(f), output_path, workspace_dir
     os.makedirs(workspace_dir, exist_ok=True)
     return None, output_path, workspace_dir
 
