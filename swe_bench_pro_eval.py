@@ -53,6 +53,9 @@ from tqdm import tqdm
 
 from helper_code.image_uri import get_dockerhub_image_uri
 
+# Docker's default 60s client read timeout is too short for long-running test suites.
+DOCKER_CLIENT_TIMEOUT = int(os.environ.get("DOCKER_CLIENT_TIMEOUT", "3600"))
+
 # Credit: prabhuteja12
 def load_base_docker(iid):
     with open(f"dockerfiles/base_dockerfile/{iid}/Dockerfile") as fp:
@@ -378,7 +381,7 @@ def eval_with_docker(patch, sample, output_dir, dockerhub_username, scripts_dir,
         dockerhub_image_uri = get_dockerhub_image_uri(uid, dockerhub_username, sample.get("repo", ""))
         print(f"Using Docker Hub image: {dockerhub_image_uri}")
 
-        client = docker.from_env()
+        client = docker.from_env(timeout=DOCKER_CLIENT_TIMEOUT)
         try:
             if docker_platform:
                 client.images.pull(dockerhub_image_uri, platform=docker_platform)
