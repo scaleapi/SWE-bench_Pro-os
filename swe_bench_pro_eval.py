@@ -39,6 +39,7 @@ import json
 import os
 import platform as py_platform
 import re
+import time
 
 try:
     import modal  # Lazy/optional: only required when not using --use_local_docker
@@ -51,15 +52,62 @@ except Exception:
 import pandas as pd
 from tqdm import tqdm
 
-from helper_code.image_uri import get_dockerhub_image_uri
+from helper_code.image_uri import (
+    get_dockerhub_image_uri as _heuristic_get_dockerhub_image_uri,
+)
+
+
+# ── Module-level constants ──────────────────────────────────────────────────────
+
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# Build-retry configuration: transient Modal image-build / registry pull
+# failures occasionally surface as RemoteError; retry a few times before
+# giving up on an instance so a single flaky pull doesn't tank the run.
+MAX_BUILD_RETRIES = 3
+BUILD_RETRY_DELAY = 5  # seconds between retries
+
+# Optional precomputed instance_id -> Docker Hub tag mapping.
+# Takes precedence over the heuristic tag generator and avoids edge-case
+# mismatches (e.g. element-hq__element-web -vnan suffix handling).
+_TAG_MAP_PATH = os.path.join(_REPO_ROOT, "helper_code", "instance_to_tag_mapping.json")
+_INSTANCE_TAG_MAP = None  # lazily loaded
+
+
+def _load_instance_tag_map():
+    """Load the instance-to-tag mapping from disk (once). Returns {} if file is absent."""
+    global _INSTANCE_TAG_MAP
+    if _INSTANCE_TAG_MAP is not None:
+        return _INSTANCE_TAG_MAP
+    if not os.path.exists(_TAG_MAP_PATH):
+        _INSTANCE_TAG_MAP = {}
+        return _INSTANCE_TAG_MAP
+    with open(_TAG_MAP_PATH, "r") as f:
+        _INSTANCE_TAG_MAP = json.load(f)
+    print(f"Loaded {len(_INSTANCE_TAG_MAP)} instance-to-tag mappings from {_TAG_MAP_PATH}")
+    return _INSTANCE_TAG_MAP
+
+
+def get_dockerhub_image_uri(uid, dockerhub_username, repo_name=""):
+    """Resolve the Docker Hub image URI for an instance.
+
+    Prefers a precomputed mapping at ``helper_code/instance_to_tag_mapping.json``
+    if present; falls back to the heuristic in ``helper_code.image_uri`` so the
+    script continues to work even when the mapping file is not shipped.
+    """
+    tag_map = _load_instance_tag_map()
+    if uid in tag_map:
+        return f"{dockerhub_username}/sweap-images:{tag_map[uid]}"
+    return _heuristic_get_dockerhub_image_uri(uid, dockerhub_username, repo_name)
+
 
 # Credit: prabhuteja12
 def load_base_docker(iid):
-    with open(f"dockerfiles/base_dockerfile/{iid}/Dockerfile") as fp:
+    with open(os.path.join(_REPO_ROOT, "dockerfiles", "base_dockerfile", iid, "Dockerfile")) as fp:
         return fp.read()
 
 def instance_docker(iid):
-    with open(f"dockerfiles/instance_dockerfile/{iid}/Dockerfile") as fp:
+    with open(os.path.join(_REPO_ROOT, "dockerfiles", "instance_dockerfile", iid, "Dockerfile")) as fp:
         return fp.read()
 
 def load_local_script(scripts_dir, instance_id, script_name):
@@ -276,6 +324,23 @@ def collect_outputs_local(workspace_dir, output_dir, uid, prefix):
         return None
 
 
+def is_image_build_error(error: Exception) -> bool:
+    """Best-effort detection of transient Modal image-build / registry errors."""
+    error_str = str(error).lower()
+    error_repr = repr(error).lower()
+    indicators = (
+        "image build",
+        "skopeo copy",
+        "failed with the exception",
+        "remoteerror",
+        "image pull",
+        "registry",
+    )
+    if any(ind in error_str or ind in error_repr for ind in indicators):
+        return True
+    return "RemoteError" in type(error).__name__
+
+
 def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False, docker_platform=None):
     if modal is None:
         raise RuntimeError("modal is not installed. Install it or run with --use_local_docker")
@@ -296,25 +361,47 @@ def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, 
             print(f"Error loading scripts for {uid}: {e}")
             return None
 
-        app = modal.App.lookup(name="swe-bench-pro-eval", create_if_missing=True)
-        
         # Use Docker Hub image instead of ECR
         dockerhub_image_uri = get_dockerhub_image_uri(uid, dockerhub_username, sample.get("repo", ""))
         print(f"Using Docker Hub image: {dockerhub_image_uri}")
-        
-        image = modal.Image.from_registry(
-            dockerhub_image_uri
-        )
 
-        sandbox = modal.Sandbox.create(
-            image=image,
-            app=app,
-            timeout=60 * 60,
-            cpu=(1, 4),
-            memory=(5 * 1024, 30 * 1024),
-            block_network=block_network,
-        )
-        
+        # Retry sandbox creation on transient image-build/pull failures so a
+        # single flaky instance doesn't kill the whole evaluation run.
+        for attempt in range(1, MAX_BUILD_RETRIES + 1):
+            try:
+                app = modal.App.lookup(name="swe-bench-pro-eval", create_if_missing=True)
+                image = modal.Image.from_registry(
+                    dockerhub_image_uri,
+                    # Some SWE-bench Pro base images don't include pip out of the box,
+                    # which prevents parser.py from importing third-party deps such
+                    # as `requests`. These commands are best-effort: they silently
+                    # no-op on images where pip is already present or where the
+                    # package manager is absent.
+                    setup_dockerfile_commands=[
+                        "RUN (apt update && apt install -y python3-pip) || (apk update && apk add py3-pip) || true",
+                        "RUN python -m pip config set global.break-system-packages true || true",
+                        "RUN pip install requests || true",
+                    ],
+                ).entrypoint([])
+
+                sandbox = modal.Sandbox.create(
+                    image=image,
+                    app=app,
+                    timeout=60 * 60,
+                    cpu=(1, 4),
+                    memory=(5 * 1024, 30 * 1024),
+                    block_network=block_network,
+                )
+                break
+            except Exception as e:
+                print(f"Attempt {attempt}/{MAX_BUILD_RETRIES} - sandbox creation failed for {uid}: {repr(e)}")
+                if is_image_build_error(e) and attempt < MAX_BUILD_RETRIES:
+                    print(f"  Transient build error; retrying in {BUILD_RETRY_DELAY}s...")
+                    time.sleep(BUILD_RETRY_DELAY)
+                    continue
+                print(f"  Giving up on {uid} after {attempt} attempt(s).")
+                return None
+
         process = sandbox.exec("mkdir", "-p", "/workspace")
         process.wait()
         
@@ -567,7 +654,7 @@ def main():
                 current_accuracy = sum(eval_results.values()) / len(eval_results)
                 pbar.set_description(f"Accuracy: {current_accuracy:.2%}")
     with open(os.path.join(args.output_dir, "eval_results.json"), "w") as f:
-        json.dump(eval_results, f)
+        json.dump(eval_results, f, indent=2)
     print("Overall accuracy: ", sum(eval_results.values()) / len(eval_results))
 
 
