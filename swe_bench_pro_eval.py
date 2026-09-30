@@ -276,6 +276,60 @@ def collect_outputs_local(workspace_dir, output_dir, uid, prefix):
         return None
 
 
+# ── Detailed eval_results helpers ───────────────────────────────────────────────
+#
+# Each per-instance entry in eval_results.json is a dict with the following keys
+# (rather than a plain bool):
+#
+#   {
+#     "status":        "Pass" | "Fail",
+#     "resolved":      bool,                 # convenience flag = (status == "Pass")
+#     "PASS_TO_PASS":  "N/M passed (failed: a, b, c)",   # human-readable summary
+#     "FAIL_TO_PASS":  "N/M passed (failed: a, b, c)",
+#     "error":         "<message>"           # only present on failure paths
+#   }
+#
+# This makes it possible to triage failures (test-failure vs. setup-failure vs.
+# exception) without opening the per-instance log files.
+
+def _make_failure_result(error_msg: str) -> dict:
+    return {
+        "status": "Fail",
+        "resolved": False,
+        "PASS_TO_PASS": "",
+        "FAIL_TO_PASS": "",
+        "error": error_msg,
+    }
+
+
+def _format_test_breakdown(expected: set, passed: set) -> str:
+    actually_passed = expected & passed
+    failed = expected - passed
+    line = f"{len(actually_passed)}/{len(expected)} passed"
+    if failed:
+        line += f" (failed: {', '.join(sorted(failed))})"
+    return line
+
+
+def _build_detailed_result(f2p: set, p2p: set, passed_tests: set) -> dict:
+    resolved = (f2p | p2p) <= passed_tests
+    return {
+        "status": "Pass" if resolved else "Fail",
+        "resolved": resolved,
+        "PASS_TO_PASS": _format_test_breakdown(p2p, passed_tests),
+        "FAIL_TO_PASS": _format_test_breakdown(f2p, passed_tests),
+    }
+
+
+def _running_accuracy(eval_results: dict) -> float:
+    if not eval_results:
+        return 0.0
+    resolved = sum(
+        1 for r in eval_results.values() if isinstance(r, dict) and r.get("resolved")
+    )
+    return resolved / len(eval_results)
+
+
 def eval_with_modal(patch, sample, output_dir, dockerhub_username, scripts_dir, prefix="", redo=False, block_network=False, docker_platform=None):
     if modal is None:
         raise RuntimeError("modal is not installed. Install it or run with --use_local_docker")
@@ -544,31 +598,35 @@ def main():
                 output = future.result()
                 if output is None:
                     print(f'Evaluation for {patch_sample["instance_id"]} returned None')
-                    eval_results[patch_sample["instance_id"]] = False
+                    eval_results[patch_sample["instance_id"]] = _make_failure_result(
+                        "Evaluation returned None"
+                    )
                 else:
                     instance_id = patch_sample["instance_id"]
                     if instance_id not in raw_sample_df.index:
                         print(f'Warning: Instance {instance_id} not found in raw sample data, skipping')
-                        eval_results[instance_id] = False
+                        eval_results[instance_id] = _make_failure_result(
+                            "Instance not found in raw sample data"
+                        )
                     else:
                         raw_sample = raw_sample_df.loc[instance_id]
-                        passed_tests = {x["name"] for x in output["tests"] if x["status"] == "PASSED"}
+                        passed_tests = {x["name"] for x in output.get("tests", []) if x["status"] == "PASSED"}
                         f2p = set(eval(raw_sample["fail_to_pass"]))
                         p2p = set(eval(raw_sample["pass_to_pass"]))
-                        result = (f2p | p2p) <= passed_tests
-                        eval_results[instance_id] = result
+                        eval_results[instance_id] = _build_detailed_result(
+                            f2p, p2p, passed_tests
+                        )
 
-                current_accuracy = sum(eval_results.values()) / len(eval_results)
+                current_accuracy = _running_accuracy(eval_results)
                 pbar.set_description(f"Accuracy: {current_accuracy:.2%}")
             except Exception as exc:
                 print(f'Evaluation for {patch_sample["instance_id"]} generated an exception: {exc}')
-                eval_results[patch_sample["instance_id"]] = False
-                # Update progress bar description with current accuracy
-                current_accuracy = sum(eval_results.values()) / len(eval_results)
+                eval_results[patch_sample["instance_id"]] = _make_failure_result(str(exc))
+                current_accuracy = _running_accuracy(eval_results)
                 pbar.set_description(f"Accuracy: {current_accuracy:.2%}")
     with open(os.path.join(args.output_dir, "eval_results.json"), "w") as f:
-        json.dump(eval_results, f)
-    print("Overall accuracy: ", sum(eval_results.values()) / len(eval_results))
+        json.dump(eval_results, f, indent=2)
+    print("Overall accuracy: ", _running_accuracy(eval_results))
 
 
 if __name__ == "__main__":
