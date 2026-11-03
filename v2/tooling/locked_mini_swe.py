@@ -49,7 +49,7 @@ class LockedMiniSwe(MiniSweAgent):
                 'if [ -f "$HOME/.local/bin/env" ]; then source "$HOME/.local/bin/env"; fi && '
                 'export PATH="$HOME/.local/bin:$PATH" && '
                 f"uv tool install --python 3.12 mini-swe-agent{version_spec} "
-                "--with litellm --with orjson --with fastapi && mini-swe-agent --help"
+                "--with litellm --with orjson --with fastapi --with mcp && mini-swe-agent --help"
             ),
         )
 
