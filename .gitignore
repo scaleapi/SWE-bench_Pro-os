@@ -175,3 +175,5 @@ cython_debug/
 # SWE-bench Pro V2 tooling: large binary tarball and generated probe tasks
 v2/tooling/bin/*.tar.gz
 probes/
+jobs/
+
